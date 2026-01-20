@@ -74,6 +74,33 @@ OCR과 AI를 활용해 **계약서를 분석**하고,
 ### 🌐 Domain
 
 * 김영우
+* 
+* ## 📁 프로젝트 구조
+
+본 프로젝트는 **모노레포(Monorepo) 구조**로 구성되어 있으며,
+각 영역을 역할별로 분리하여 개발 및 배포 효율성을 높였습니다.
+
+```
+mobaextreme/
+├─ frontend/              # Flutter 기반 사용자 애플리케이션
+├─ backend/               # OCR · AI · API 서버 (Python)
+├─ realtime/              # 실시간 처리 / WebSocket 서버
+├─ docker-compose.yml     # 전체 서비스 통합 실행 설정
+└─ README.md              # 프로젝트 전체 문서
+```
+
+* **frontend/**
+  사용자와 직접 상호작용하는 모바일 UI 영역
+
+* **backend/**
+  계약서 OCR 처리, AI 분석, 비즈니스 로직 및 API 제공
+
+* **realtime/**
+  분석 진행 상태, 실시간 알림 등을 위한 실시간 처리 서버
+
+* **docker-compose.yml**
+  모든 서비스를 한 번에 실행·관리하기 위한 Docker 설정 파일
+
 
 ### 🤖 AI / Model
 
@@ -100,6 +127,7 @@ OCR과 AI를 활용해 **계약서를 분석**하고,
 | Environment   | WSL2 (Ubuntu 20.04)     |
 
 ---
+
 
 ## ⚙️ 개발 환경 설정 (WSL2)
 
