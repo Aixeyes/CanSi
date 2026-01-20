@@ -28,27 +28,37 @@ Git/Docker - 상현 은찬
 ## wsl 설치 방법
 
 |window powershell 관리자 실행|
+
                ↓
+               
 |Linux용 winsdow 하위 시스템 활성화|
 dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+
                ↓
 |WSL 설치|
+
                ↓              
 wsl.exe --install
 
 |최신 버전으로 업데이트|
+
                ↓
 wsl.exe --update
 |WSL2를 기본 버전으로 설정|
+
                ↓
 wsl --set-default-version 2
 |ubuntu버전 설치|
+
                ↓
 wsl --install -d Ubuntu-20.04
+
                ↓
 Ubuntu 20.04
+
                ↓
 wsl -d Ubuntu-20.04
+
                ↓
 wsl -l -v
 ------------------------
