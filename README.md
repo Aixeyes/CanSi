@@ -18,6 +18,7 @@ Domain - 영우
 model - 상현 은찬
 
 Git/Docker - 상현 은찬
+
 ------------------------
 ## flutter-Android studio | Docker | Python Ocr - upstage | DB-SQL | notion |
                                  
