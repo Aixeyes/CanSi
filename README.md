@@ -1,4 +1,4 @@
-# 🚀 CanSi
+# CanSi
 
 ### *Can I Sign This?*
 
