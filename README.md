@@ -1,7 +1,7 @@
 # CanSi
 AIX-3기 bootcamp mainproject
 ------------------------
-## 주제 : Can I Sign This CanSi
+## 주제 : CanSi |  Can I Sign This 
 ------------------------
 기획/문서 - 예슬 은찬 영우
 
