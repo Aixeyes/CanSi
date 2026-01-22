@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend          # backend 폴더 기준으로 Dockerfile 빌드
+      dockerfile: Dockerfile
+    container_name: cansi-backend
+    ports:
+      - "8000:8000"               # 로컬 8000 → 컨테이너 8000
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: app_user
+      DB_PASSWORD: app_pass
+      DB_NAME: app_db
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app            # 개발용: 코드 변경 바로 반영
+
+  db:
+    image: mysql:8.0
+    container_name: cansi-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root1234
+      MYSQL_DATABASE: app_db
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql # DB 데이터 보존용 볼륨
+
+volumes:
+  mysql_data:
+
