@@ -1,65 +1,49 @@
-"""
-4단계: 공공 판례 API 호출 및 DB 구축
-"""
+import os
+from typing import List
 
-from typing import List, Optional
-from models import Precedent
+try:
+    import requests
+except ImportError as exc:
+    raise ImportError(
+        "필수 패키지가 없습니다: requests. `pip install requests`로 설치하세요."
+    ) from exc
+
+from .models import Precedent
 
 
 class PrecedentFetcher:
-    """판례 API 호출 및 DB 구축"""
-    
-    def __init__(self, api_url: Optional[str] = None):
-        """
-        Args:
-            api_url: 판례 API URL (국가법령정보센터, 대법원 판례 등)
-        """
-        self.api_url = api_url or "https://www.law.go.kr/API/OpenServiceList"
-        self.precedents_db: List[Precedent] = []
-    
-    def fetch_precedents(self, keyword: str, limit: int = 10) -> List[Precedent]:
-        """
-        판례 검색
-        
-        Args:
-            keyword: 검색 키워드
-            limit: 최대 결과 수
-            
-        Returns:
-            판례 목록
-        """
-        # TODO: 실제 API 호출 구현 (국가법령정보센터, 판례검색 API 등)
-        # 현재는 더미 데이터 반환
-        precedents = [
-            Precedent(
-                case_id="2020가합12345",
-                court="서울중앙지방법원",
-                date="2020-06-15",
-                case_name="계약 분쟁 사건",
-                summary="일방적 해지 조항은 공정거래법 위반으로 판단",
-                key_paragraph="계약서의 일방적 해지 조항은 계약의 균형을 해치는 것으로 보임"
+    def __init__(self, api_url: str | None = None, api_key: str | None = None) -> None:
+        self.api_url = api_url or os.getenv("PRECEDENT_API_URL") or ""
+        self.api_key = api_key or os.getenv("PRECEDENT_API_KEY") or "api필요"
+        self._local_store: List[Precedent] = []
+
+    def fetch_precedents(self, keyword: str) -> List[Precedent] | str:
+        if self.api_key == "api필요":
+            return "api필요"
+        if not self.api_url:
+            return []
+        response = requests.get(
+            self.api_url,
+            params={"q": keyword},
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        items = response.json() or []
+        precedents = []
+        for item in items:
+            precedents.append(
+                Precedent(
+                    precedent_id=str(item.get("id", "")),
+                    title=str(item.get("title", "")),
+                    summary=str(item.get("summary", "")),
+                    keywords=item.get("keywords", []) or [],
+                )
             )
-        ]
-        
-        self.precedents_db.extend(precedents)
         return precedents
-    
+
     def get_precedents_by_keyword(self, keyword: str) -> List[Precedent]:
-        """키워드로 판례 DB 검색"""
-        results = []
-        keyword_lower = keyword.lower()
-        
-        for precedent in self.precedents_db:
-            if (keyword_lower in precedent.summary.lower() or 
-                keyword_lower in precedent.key_paragraph.lower()):
-                results.append(precedent)
-        
-        return results
-    
-    def add_precedent(self, precedent: Precedent):
-        """판례 수동 추가"""
-        self.precedents_db.append(precedent)
-    
-    def get_all_precedents(self) -> List[Precedent]:
-        """모든 판례 반환"""
-        return self.precedents_db
+        return [p for p in self._local_store if keyword in p.keywords]
+
+    def add_precedent(self, precedent: Precedent) -> None:
+        self._local_store.append(precedent)

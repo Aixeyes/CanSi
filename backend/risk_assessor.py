@@ -1,59 +1,62 @@
-"""
-3단계: 위험 조항 필터링 (Rule-based)
-"""
+import json
+import os
+from typing import Optional, Tuple
 
-from typing import List, Tuple
-from models import Clause, RiskType
+try:
+    from openai import OpenAI
+except ImportError as exc:
+    raise ImportError(
+        "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
+    ) from exc
+
+from .models import Clause, RiskType
 
 
 class RiskAssessor:
-    """을(甲) 기준 위험 조항 필터링"""
-    
-    # 위험 키워드 정의
-    CRITICAL_KEYWORDS = {
-        "critical": ["무제한", "일방적", "즉시 해지", "전액 배상", "전적으로 책임"],
-        "high": ["배상", "손해배상", "책임", "이의제기 불가", "강제 집행"],
-        "medium": ["수정 불가", "변경 불가", "의무", "조건"]
-    }
-    
-    @staticmethod
-    def assess_clause(clause: Clause) -> Tuple[RiskType, str]:
-        """
-        조항의 위험도 평가
-        
-        Returns:
-            (위험 수준, 위험 사유)
-        """
-        text = (clause.title + " " + clause.content).lower()
-        
-        # CRITICAL 체크
-        for keyword in RiskAssessor.CRITICAL_KEYWORDS["critical"]:
-            if keyword in text:
-                return RiskType.CRITICAL, f"위험 키워드 '{keyword}' 감지"
-        
-        # HIGH 체크
-        for keyword in RiskAssessor.CRITICAL_KEYWORDS["high"]:
-            if keyword in text:
-                return RiskType.HIGH, f"위험 키워드 '{keyword}' 감지"
-        
-        # MEDIUM 체크
-        for keyword in RiskAssessor.CRITICAL_KEYWORDS["medium"]:
-            if keyword in text:
-                return RiskType.MEDIUM, f"주의 키워드 '{keyword}' 감지"
-        
-        return RiskType.LOW, "위험 요소 없음"
-    
-    @staticmethod
-    def filter_risky_clauses(clauses: List[Clause]) -> List[Clause]:
-        """위험 조항만 필터링"""
-        risky_clauses = []
-        
+    def __init__(self, model: Optional[str] = None) -> None:
+        self.model = model or os.getenv("OPENAI_RISK_MODEL") or "gpt-4o"
+        self.api_key = os.getenv("OPENAI_API_KEY") or "api필요"
+        self._client = OpenAI(api_key=self.api_key) if self.api_key != "api필요" else None
+
+    def assess_clause(self, clause: Clause) -> Tuple[Optional[RiskType], str]:
+        if self.api_key == "api필요":
+            return "api필요"
+        prompt = (
+            "You are a legal risk assistant. Assess the risk level of the clause below.\n"
+            "Return JSON only: {\"risk\": \"low|medium|high\", \"rationale\": \"...\"}\n"
+            "Write the rationale in Korean.\n"
+            f"Clause:\n{clause.text}"
+        )
+        response = self._client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = response.choices[0].message.content or ""
+        try:
+            payload = json.loads(content)
+            risk_raw = str(payload.get("risk", "")).lower()
+            risk = self._map_risk(risk_raw)
+            rationale = str(payload.get("rationale", "")).strip()
+            return risk, rationale
+        except json.JSONDecodeError:
+            risk = self._map_risk(content.lower())
+            return risk, content.strip()
+
+    def filter_risky_clauses(self, clauses: list[Clause]) -> list[Clause]:
+        risky: list[Clause] = []
         for clause in clauses:
-            risk_level, reason = RiskAssessor.assess_clause(clause)
-            clause.risk_level = risk_level
-            clause.risk_reason = reason
-            
-            if risk_level in [RiskType.CRITICAL, RiskType.HIGH, RiskType.MEDIUM]:
-                risky_clauses.append(clause)
-        
-        return risky_clauses
+            risk, rationale = self.assess_clause(clause)
+            clause.risk = risk
+            clause.rationale = rationale
+            if risk in (RiskType.MEDIUM, RiskType.HIGH):
+                risky.append(clause)
+        return risky
+
+    def _map_risk(self, value: str) -> Optional[RiskType]:
+        if "high" in value:
+            return RiskType.HIGH
+        if "medium" in value:
+            return RiskType.MEDIUM
+        if "low" in value:
+            return RiskType.LOW
+        return None

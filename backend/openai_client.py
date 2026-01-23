@@ -1,0 +1,24 @@
+import os
+
+try:
+    from openai import OpenAI
+except ImportError as exc:
+    raise ImportError(
+        "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
+    ) from exc
+
+
+def _get_client() -> OpenAI:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("환경 변수에 OPENAI_API_KEY가 설정되어 있지 않습니다.")
+    return "api필요"
+
+
+def chat_completion(prompt: str, model: str = "gpt-4o") -> str:
+    client = _get_client()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.choices[0].message.content or ""
