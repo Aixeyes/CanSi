@@ -1,4 +1,4 @@
-"""
+﻿"""
 2단계: 텍스트 정제 및 조항 분리
 """
 
@@ -18,11 +18,11 @@ class TextProcessor:
         - 불필요한 공백 제거
         - 줄바꿈 정리
         """
-        # 다중 공백 제거
+        # 중복 공백 제거
         text = re.sub(r' +', ' ', text)
-        # 다중 줄바꿈 정리 (최대 2줄까지만)
+        # 중복 줄바꿈 정리 (최대 2줄까지만)
         text = re.sub(r'\n\n+', '\n\n', text)
-        # 앞뒤 공백 제거
+        # 양끝 공백 제거
         text = text.strip()
         return text
     
@@ -40,7 +40,7 @@ class TextProcessor:
         """
         clauses = []
         
-        # "제N조" 패턴으로 분리
+        # "제n조" 패턴으로 분리
         clause_pattern = r'제(\d+)조\s+(.+?)(?=제\d+조|$)'
         matches = re.finditer(clause_pattern, text, re.DOTALL)
         

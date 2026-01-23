@@ -1,4 +1,4 @@
-"""
+﻿"""
 데이터 모델 정의
 """
 
@@ -19,7 +19,7 @@ class RiskType(str, Enum):
 class Clause:
     """계약 조항"""
     id: str
-    article_num: str                    # 조항 번호 (예: "1조", "2조")
+    article_num: str                    # 조항 번호 (예: "제1조", "제2조")
     title: str                          # 조항 제목
     content: str                        # 조항 내용
     risk_level: Optional[RiskType] = None
@@ -34,7 +34,7 @@ class Precedent:
     court: str                          # 법원
     date: str                           # 판결일
     case_name: str                      # 사건명
-    summary: str                        # 요지
+    summary: str                        # 요약
     key_paragraph: str                  # 문제 문단
     similarity_score: Optional[float] = None
 

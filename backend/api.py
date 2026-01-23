@@ -14,6 +14,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from pipeline import ContractAnalysisPipeline
+from contract.router import router as contract_router, set_pipeline
 
 
 class NoOpLLMClient:
@@ -43,6 +44,8 @@ def _build_pipeline() -> ContractAnalysisPipeline:
 
 app = FastAPI(title="CanSi API", version="0.1.0")
 pipeline = _build_pipeline()
+set_pipeline(pipeline)
+app.include_router(contract_router)
 
 
 @app.get("/health")

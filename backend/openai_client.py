@@ -12,13 +12,19 @@ def _get_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("환경 변수에 OPENAI_API_KEY가 설정되어 있지 않습니다.")
-    return "api필요"
+    return OpenAI(api_key=api_key)
 
 
-def chat_completion(prompt: str, model: str = "gpt-4o") -> str:
+def chat_completion(
+    prompt: str, model: str = "gpt-4o", system_prompt: str | None = None
+) -> str:
     client = _get_client()
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
     )
     return response.choices[0].message.content or ""
