@@ -9,7 +9,7 @@ except ImportError as exc:
         "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
     ) from exc
 
-from .models import Clause, RiskType
+from models import Clause, RiskType
 
 
 class RiskAssessor:
@@ -20,12 +20,13 @@ class RiskAssessor:
 
     def assess_clause(self, clause: Clause) -> Tuple[Optional[RiskType], str]:
         if self.api_key == "api필요":
-            return "api필요"
+            return None, "api필요"
+        clause_text = f"{clause.title}\n{clause.content}"
         prompt = (
             "You are a legal risk assistant. Assess the risk level of the clause below.\n"
             "Return JSON only: {\"risk\": \"low|medium|high\", \"rationale\": \"...\"}\n"
             "Write the rationale in Korean.\n"
-            f"Clause:\n{clause.text}"
+            f"Clause:\n{clause_text}"
         )
         response = self._client.chat.completions.create(
             model=self.model,
@@ -46,8 +47,8 @@ class RiskAssessor:
         risky: list[Clause] = []
         for clause in clauses:
             risk, rationale = self.assess_clause(clause)
-            clause.risk = risk
-            clause.rationale = rationale
+            clause.risk_level = risk
+            clause.risk_reason = rationale
             if risk in (RiskType.MEDIUM, RiskType.HIGH):
                 risky.append(clause)
         return risky

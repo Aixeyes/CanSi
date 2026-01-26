@@ -32,10 +32,23 @@ class Precedent:
     """판례 정보"""
     case_id: str
     court: str                          # 법원
-    date: str                           # 판결일
+    date: str                           # 선고일자
     case_name: str                      # 사건명
-    summary: str                        # 요약
-    key_paragraph: str                  # 문제 문단
+    case_number: str = ""              # 사건번호
+    case_type_name: str = ""            # 사건종류명
+    case_type_code: Optional[int] = None
+    court_type_code: Optional[int] = None
+    decision_type: str = ""            # 판결유형
+    decision_result: str = ""          # 선고
+    source_name: str = ""              # 데이터출처명
+    detail_link: str = ""              # 판례상세링크
+    issues: str = ""                   # 판시사항
+    summary: str = ""                  # 판결요지
+    key_paragraph: str = ""            # 문제 문단
+    full_text: str = ""                # 판례내용
+    reference_statutes: str = ""       # 참조조문
+    reference_precedents: str = ""     # 참조판례
+    embedding: Optional[List[float]] = None
     similarity_score: Optional[float] = None
 
 

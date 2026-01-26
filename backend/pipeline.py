@@ -1,4 +1,4 @@
-"""
+﻿"""
 계약서 위험조항 분석 파이프라인 - 메인 파이프라인
 """
 
@@ -15,7 +15,6 @@ from precedent_fetcher import PrecedentFetcher
 from embedding_manager import EmbeddingManager
 from risk_mapper import RiskMapper
 from llm_summarizer import LLMSummarizer
-from openai import OpenAIClient
 
 
 # ==================== 메인 파이프라인 ====================
@@ -30,9 +29,18 @@ class ContractAnalysisPipeline:
         self.precedent_fetcher = PrecedentFetcher()
         self.embedding_manager = EmbeddingManager()
         self.risk_mapper = RiskMapper()
-        if llm_client is None:
-            llm_client = OpenAIClient()
-        self.llm_summarizer = LLMSummarizer(llm_client=llm_client)
+        self.llm_summarizer = LLMSummarizer()
+
+
+    def _format_clauses_for_llm(self, clauses: List[Clause]) -> str:
+        """Convert clauses into a compact text block for LLM input."""
+        lines = []
+        for clause in clauses:
+            title = clause.title or ""
+            content = clause.content or ""
+            risk = clause.risk_level.value if clause.risk_level else ""
+            lines.append(f"[{clause.article_num}] {title} ({risk})\n{content}")
+        return "\n\n".join(lines)
     
     def analyze(self, file_path: str) -> ContractAnalysisResult:
         """
@@ -54,9 +62,9 @@ class ContractAnalysisPipeline:
             분석 결과
         """
         filename = os.path.basename(file_path)
-        
-        # 1단계: OCR
-        print(f"[1/7] OCR 진행 중.. ({filename})")
+
+        # 1??: OCR
+        print(f"[1/7] OCR ?? ?.. ({filename})")
         ocr_result = self.ocr.extract_text_from_file(file_path)
         raw_text = get_extracted_text(ocr_result)
         
@@ -82,8 +90,9 @@ class ContractAnalysisPipeline:
         # 5단계: 임베딩 생성 및 유사도 검색
         print("[5/7] 임베딩 생성 및 유사도 검색..")
         for clause in risky_clauses:
+            target_text = f"{clause.title} {clause.content}"
             similar_precedents = self.embedding_manager.find_similar_precedents(
-                clause, all_precedents
+                target_text, all_precedents
             )
             clause.related_precedents = similar_precedents
         print("     유사도 검색 완료")
@@ -98,7 +107,8 @@ class ContractAnalysisPipeline:
         
         # 7단계: LLM 요약 생성
         print("[7/7] LLM 조항 요약 생성...")
-        llm_summary = self.llm_summarizer.generate_comprehensive_report(risky_clauses)
+        llm_input = self._format_clauses_for_llm(risky_clauses)
+        llm_summary = self.llm_summarizer.generate_comprehensive_report(llm_input)
         
         # 결과 반환
         result = ContractAnalysisResult(
@@ -128,10 +138,10 @@ class ContractAnalysisPipeline:
         from contract.service import ContractNegotiationService
 
         negotiation_service = ContractNegotiationService()
-        negotiation_result = negotiation_service._negotiate(
-            analysis_result.raw_text,
+        negotiation_result = negotiation_service.negotiate_clauses(
             analysis_result.clauses,
             rounds,
+            raw_text=analysis_result.raw_text,
         )
         return analysis_result, negotiation_result
     
@@ -166,7 +176,7 @@ if __name__ == "__main__":
     pipeline = ContractAnalysisPipeline()
     
     # 분석 실행
-    contract_file = "contract.pdf"  # 또는 .jpg, .png 등
+    contract_file = "부동산_임대차_계약서_일반_상세_한글정상.pdf"  # 또는 .jpg, .png 등
     
     try:
         result = pipeline.analyze(contract_file)

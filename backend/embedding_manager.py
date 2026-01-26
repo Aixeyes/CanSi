@@ -9,7 +9,7 @@ except ImportError as exc:
         "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
     ) from exc
 
-from .models import Precedent
+from models import Precedent
 
 
 class EmbeddingManager:
@@ -42,9 +42,10 @@ class EmbeddingManager:
             return "api필요"
         scored: List[tuple[float, Precedent]] = []
         for precedent in precedents:
-            if precedent.embedding is None:
+            precedent_embedding = getattr(precedent, "embedding", None)
+            if not precedent_embedding:
                 continue
-            score = self.calculate_similarity(target_embedding, precedent.embedding)
+            score = self.calculate_similarity(target_embedding, precedent_embedding)
             scored.append((score, precedent))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [item[1] for item in scored[:top_k]]

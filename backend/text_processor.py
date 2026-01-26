@@ -41,7 +41,7 @@ class TextProcessor:
         clauses = []
         
         # "제n조" 패턴으로 분리
-        clause_pattern = r'제(\d+)조\s+(.+?)(?=제\d+조|$)'
+        clause_pattern = r'제\s*(\d+)\s*조\s*(.+?)(?=제\s*\d+\s*조|$)'
         matches = re.finditer(clause_pattern, text, re.DOTALL)
         
         for match in matches:
@@ -50,8 +50,15 @@ class TextProcessor:
             
             # 첫 줄을 제목으로, 나머지를 내용으로
             lines = clause_text.split('\n', 1)
-            title = lines[0].strip()
-            content = lines[1].strip() if len(lines) > 1 else ""
+            title_line = lines[0].strip()
+            title = title_line
+            content_first = ""
+            paren_match = re.search(r'\(([^)]*)\)\s*(.*)', title_line)
+            if paren_match:
+                title = paren_match.group(1).strip()
+                content_first = paren_match.group(2).strip()
+            content_rest = lines[1].strip() if len(lines) > 1 else ""
+            content = "\n".join(part for part in [content_first, content_rest] if part).strip()
             
             clause = Clause(
                 id=f"clause_{clause_num}",
