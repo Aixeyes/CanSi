@@ -13,6 +13,9 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
+from pydantic import BaseModel, EmailStr
+import mysql.connector
+
 from pipeline import ContractAnalysisPipeline
 from contract.router import router as contract_router, set_pipeline
 
@@ -48,11 +51,55 @@ set_pipeline(pipeline)
 app.include_router(contract_router)
 
 
+# ======================
+# Health Check
+# ======================
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
 
 
+# ======================
+# Signup (추가된 부분)
+# ======================
+class SignupRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+@app.post("/signup")
+def signup(req: SignupRequest):
+    conn = mysql.connector.connect(
+        host=os.getenv("DB_HOST", "db"),
+        user=os.getenv("DB_USER", "root"),
+        password=os.getenv("DB_PASSWORD", "root123"),
+        database=os.getenv("DB_NAME", "app_db"),
+    )
+    cur = conn.cursor()
+
+    # 이메일 중복 체크
+    cur.execute("SELECT id FROM users WHERE email = %s", (req.email,))
+    if cur.fetchone():
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Email already exists")
+
+    # 유저 생성
+    cur.execute(
+        "INSERT INTO users (name, email, password) VALUES (%s, %s, %s)",
+        (req.name, req.email, req.password),
+    )
+    conn.commit()
+
+    cur.close()
+    conn.close()
+    return {"result": "ok"}
+
+
+# ======================
+# Analyze File
+# ======================
 @app.post("/analyze/file")
 async def analyze_file(file: UploadFile = File(...)) -> JSONResponse:
     if not file.filename:
@@ -75,3 +122,4 @@ async def analyze_file(file: UploadFile = File(...)) -> JSONResponse:
                 os.remove(temp_path)
             except OSError:
                 pass
+

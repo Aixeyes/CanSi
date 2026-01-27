@@ -10,5 +10,6 @@ dependencies:
   - pip
   - pip:
       - python-dotenv
-
+      - uvicorn[standard]
+      - mysql-connector-python
 
