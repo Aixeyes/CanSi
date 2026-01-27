@@ -2,8 +2,11 @@
 2단계: 텍스트 정제 및 조항 분리
 """
 
+import json
 import re
 from typing import List
+
+from openai_client import chat_completion
 from models import Clause
 
 
@@ -62,3 +65,43 @@ class TextProcessor:
             clauses.append(clause)
         
         return clauses
+
+    def split_clauses_with_fallback(self, text: str) -> List[Clause]:
+        """
+        규칙 기반 분리가 실패하거나 품질이 낮을 때 LLM 보정 분리를 시도한다.
+        """
+        clauses = self.split_clauses(text)
+        if clauses and not (len(clauses) == 1 and len(text) > 1000):
+            return clauses
+        return self._split_clauses_with_llm(text, fallback=clauses)
+
+    def _split_clauses_with_llm(
+        self,
+        text: str,
+        fallback: List[Clause],
+    ) -> List[Clause]:
+        prompt = (
+            "Split the following Korean contract into clauses. "
+            "Return JSON only as a list of objects with keys: article_num, title, content. "
+            "article_num should be like '제1조' if present, otherwise use '조항N'. "
+            "Do not omit any content. Respond in Korean.\n\n"
+            f"{text}"
+        )
+        try:
+            content = chat_completion(prompt=prompt, model="gpt-4o")
+            payload = json.loads(content)
+            clauses: List[Clause] = []
+            for idx, item in enumerate(payload, start=1):
+                article_num = str(item.get("article_num") or f"조항{idx}").strip()
+                title = str(item.get("title") or "무제").strip()
+                body = str(item.get("content") or "").strip()
+                clause = Clause(
+                    id=f"clause_{idx}",
+                    article_num=article_num,
+                    title=title,
+                    content=body,
+                )
+                clauses.append(clause)
+            return clauses or fallback
+        except Exception:
+            return fallback

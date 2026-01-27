@@ -2,30 +2,34 @@
 import os
 from typing import Optional, Tuple
 
-try:
-    from openai import OpenAI
-except ImportError as exc:
-    raise ImportError(
-        "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
-    ) from exc
 
-from .models import Clause, RiskType
+
+from models import Clause, RiskType
 
 
 class RiskAssessor:
     def __init__(self, model: Optional[str] = None) -> None:
         self.model = model or os.getenv("OPENAI_RISK_MODEL") or "gpt-4o"
         self.api_key = os.getenv("OPENAI_API_KEY") or "api필요"
-        self._client = OpenAI(api_key=self.api_key) if self.api_key != "api필요" else None
+        self._client = self._build_client() if self.api_key != "api필요" else None
+
+    def _build_client(self):
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError(
+                "openai 패키지가 없습니다. `pip install openai`로 설치하세요."
+            ) from exc
+        return OpenAI(api_key=self.api_key)
 
     def assess_clause(self, clause: Clause) -> Tuple[Optional[RiskType], str]:
         if self.api_key == "api필요":
-            return "api필요"
+            return None, "api필요"
         prompt = (
             "You are a legal risk assistant. Assess the risk level of the clause below.\n"
-            "Return JSON only: {\"risk\": \"low|medium|high\", \"rationale\": \"...\"}\n"
+            "Return JSON only: {\"risk\": \"low|medium|high|critical\", \"rationale\": \"...\"}\n"
             "Write the rationale in Korean.\n"
-            f"Clause:\n{clause.text}"
+            f"Clause:\n{clause.content}"
         )
         response = self._client.chat.completions.create(
             model=self.model,
@@ -46,13 +50,15 @@ class RiskAssessor:
         risky: list[Clause] = []
         for clause in clauses:
             risk, rationale = self.assess_clause(clause)
-            clause.risk = risk
-            clause.rationale = rationale
-            if risk in (RiskType.MEDIUM, RiskType.HIGH):
+            clause.risk_level = risk
+            clause.risk_reason = rationale
+            if risk in (RiskType.MEDIUM, RiskType.HIGH, RiskType.CRITICAL):
                 risky.append(clause)
         return risky
 
     def _map_risk(self, value: str) -> Optional[RiskType]:
+        if "critical" in value:
+            return RiskType.CRITICAL
         if "high" in value:
             return RiskType.HIGH
         if "medium" in value:

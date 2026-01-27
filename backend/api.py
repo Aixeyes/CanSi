@@ -8,20 +8,12 @@ import os
 import tempfile
 from dataclasses import asdict, is_dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from pipeline import ContractAnalysisPipeline
-from contract.router import router as contract_router, set_pipeline
-
-
-class NoOpLLMClient:
-    """Fallback LLM client when OPENAI_API_KEY is missing."""
-
-    def generate(self, prompt: str, system_prompt: str | None = None) -> str:
-        return "LLM disabled (missing OPENAI_API_KEY)"
 
 
 def _serialize(obj: Any) -> Any:
@@ -37,15 +29,46 @@ def _serialize(obj: Any) -> Any:
 
 
 def _build_pipeline() -> ContractAnalysisPipeline:
-    if os.getenv("OPENAI_API_KEY"):
-        return ContractAnalysisPipeline()
-    return ContractAnalysisPipeline(llm_client=NoOpLLMClient())
+    return ContractAnalysisPipeline()
+
+def _max_risk_level(clauses: list) -> Optional[str]:
+    order = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+    highest = None
+    highest_score = 0
+    for clause in clauses:
+        level = getattr(clause, "risk_level", None)
+        value = level.value if level else None
+        score = order.get(value or "", 0)
+        if score > highest_score:
+            highest_score = score
+            highest = value
+    return highest
+
+
+def _format_result_for_app(result: Any) -> dict:
+    risky_clauses = result.risky_clauses or []
+    highlights = []
+    for clause in risky_clauses[:3]:
+        title = clause.title or clause.article_num
+        reason = clause.risk_reason or ""
+        highlights.append(f"{title}: {reason}".strip(": "))
+
+    return {
+        "contract_type": result.contract_type,
+        "summary": {
+            "risk_level": _max_risk_level(result.risky_clauses),
+            "total_clauses": len(result.clauses),
+            "risky_count": len(result.risky_clauses),
+            "highlights": highlights,
+        },
+        "risky_clauses": _serialize(result.risky_clauses),
+        "debate": {"transcript": result.debate_transcript},
+        "report": result.llm_summary,
+    }
 
 
 app = FastAPI(title="CanSi API", version="0.1.0")
 pipeline = _build_pipeline()
-set_pipeline(pipeline)
-app.include_router(contract_router)
 
 
 @app.get("/health")
@@ -68,7 +91,7 @@ async def analyze_file(file: UploadFile = File(...)) -> JSONResponse:
             tmp.write(contents)
 
         result = pipeline.analyze(temp_path)
-        return JSONResponse(content=_serialize(result))
+        return JSONResponse(content=_format_result_for_app(result))
     finally:
         if temp_path and os.path.exists(temp_path):
             try:

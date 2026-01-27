@@ -48,3 +48,5 @@ class ContractAnalysisResult:
     risky_clauses: List[Clause]
     precedents: List[Precedent]
     llm_summary: Optional[str] = None
+    debate_transcript: Optional[List[dict]] = None
+    contract_type: Optional[str] = None
