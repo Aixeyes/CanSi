@@ -30,11 +30,13 @@ class WelcomeScreen extends StatelessWidget {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
+            // Constrain width to keep a mobile card layout on wide screens.
             constraints: const BoxConstraints(maxWidth: 430),
             child: Container(
               color: Colors.white,
               child: Stack(
                 children: [
+                  // Ambient glow accents.
                   Positioned(
                     top: -40,
                     right: -60,
@@ -91,6 +93,7 @@ class WelcomeScreen extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Column(
                           children: [
+                            // Primary CTA.
                             SizedBox(
                               width: double.infinity,
                               height: 64,
@@ -118,6 +121,7 @@ class WelcomeScreen extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 16),
+                            // Secondary link-style CTA.
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -179,6 +183,7 @@ class _WelcomeLogo extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // Soft backdrop halo behind the badge.
           Container(
             width: 120,
             height: 120,
@@ -236,6 +241,7 @@ class _WelcomeLogoIconStack extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // Layered icons to mimic the HTML badge stack.
           Icon(
             Icons.shield_outlined,
             size: 64,

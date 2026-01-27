@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'main.dart';
+import 'user_session.dart';
 
 /// 프로필 수정 화면.
 class ProfileEditScreen extends StatefulWidget {
@@ -10,13 +13,239 @@ class ProfileEditScreen extends StatefulWidget {
 }
 
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
-  final TextEditingController _nameController =
-      TextEditingController(text: '김철수');
-  final TextEditingController _emailController =
-      TextEditingController(text: 'counsel@contractai.com');
-  final TextEditingController _passwordController =
-      TextEditingController(text: '********');
+  // Controllers hold the editable profile fields.
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   bool _hidePassword = true;
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final email = UserSession.email?.trim();
+    if (email == null || email.isEmpty) {
+      setState(() {
+        _loading = false;
+        _error = 'No email in session. Please login again.';
+      });
+      return;
+    }
+
+    try {
+      final uri = Uri.parse(
+        'http://3.35.210.200:8000/profile?email=${Uri.encodeQueryComponent(email)}',
+      );
+      final response = await http.get(uri);
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Profile API error: ${response.statusCode} ${response.body}',
+        );
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final profile = _unwrapProfileMap(data);
+      final name =
+          _pickString(profile, const [
+            'name',
+            'username',
+            'user_name',
+            'full_name',
+            'fullName',
+            'nickname',
+            'display_name',
+            'displayName',
+          ]) ??
+          _pickString(data, const [
+            'name',
+            'username',
+            'user_name',
+            'full_name',
+            'fullName',
+            'nickname',
+            'display_name',
+            'displayName',
+          ]);
+      final emailValue =
+          _pickString(profile, const [
+            'email',
+            'email_address',
+            'emailAddress',
+            'mail',
+          ]) ??
+          _pickString(data, const [
+            'email',
+            'email_address',
+            'emailAddress',
+            'mail',
+          ]);
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _nameController.text = (name == null || name.isEmpty) ? '' : name;
+        _emailController.text = (emailValue == null || emailValue.isEmpty)
+            ? email
+            : emailValue;
+        _passwordController.text = '';
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Map<String, dynamic> _unwrapProfileMap(Map<String, dynamic> data) {
+    final nestedKeys = ['data', 'profile', 'user', 'result'];
+    for (final key in nestedKeys) {
+      final value = data[key];
+      if (value is Map<String, dynamic>) {
+        return value;
+      }
+    }
+    return data;
+  }
+
+  String? _pickString(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      if (!data.containsKey(key)) {
+        continue;
+      }
+      final value = data[key];
+      if (value == null) {
+        continue;
+      }
+      final text = value.toString().trim();
+      if (text.isNotEmpty) {
+        return text;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _saveProfile() async {
+    if (_saving) {
+      return;
+    }
+    final email = UserSession.email?.trim();
+    if (email == null || email.isEmpty) {
+      setState(() {
+        _error = 'No email in session. Please login again.';
+      });
+      return;
+    }
+
+    final name = _nameController.text.trim();
+    final password = _passwordController.text.trim();
+    if (name.isEmpty && password.isEmpty) {
+      setState(() {
+        _error = '변경할 값이 없습니다.';
+      });
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
+    try {
+      final uri = Uri.parse('http://3.35.210.200:8000/profile');
+      final payload = <String, dynamic>{'email': email};
+      if (name.isNotEmpty) {
+        payload['name'] = name;
+      }
+      if (password.isNotEmpty) {
+        payload['password'] = password;
+      }
+
+      final response = await http.put(
+        uri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Profile update error: ${response.statusCode} ${response.body}',
+        );
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final profile = _unwrapProfileMap(data);
+      final updatedName =
+          _pickString(profile, const [
+            'name',
+            'username',
+            'user_name',
+            'full_name',
+            'fullName',
+            'nickname',
+            'display_name',
+            'displayName',
+          ]) ??
+          _pickString(data, const [
+            'name',
+            'username',
+            'user_name',
+            'full_name',
+            'fullName',
+            'nickname',
+            'display_name',
+            'displayName',
+          ]);
+      final updatedEmail =
+          _pickString(profile, const [
+            'email',
+            'email_address',
+            'emailAddress',
+            'mail',
+          ]) ??
+          _pickString(data, const [
+            'email',
+            'email_address',
+            'emailAddress',
+            'mail',
+          ]);
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _nameController.text = (updatedName == null || updatedName.isEmpty)
+            ? name
+            : updatedName;
+        _emailController.text = (updatedEmail == null || updatedEmail.isEmpty)
+            ? email
+            : updatedEmail;
+        _passwordController.text = '';
+        _saving = false;
+      });
+
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _saving = false;
+        _error = e.toString();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -40,53 +269,67 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 children: [
                   _EditAppBar(onCancel: () => Navigator.of(context).pop()),
                   Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-                      children: [
-                        _ProfilePhoto(
-                          onTap: () {},
-                        ),
-                        const SizedBox(height: 24),
-                        _InputGroup(
-                          label: '이름',
-                          child: _TextInput(
-                            controller: _nameController,
-                            hintText: '이름을 입력하세요',
+                    child: _loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+                            children: [
+                              if (_error != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Text(
+                                    _error!,
+                                    style: const TextStyle(
+                                      color: Color(0xFFDC2626),
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              _ProfilePhoto(onTap: () {}),
+                              const SizedBox(height: 24),
+                              _InputGroup(
+                                label: '이름',
+                                child: _TextInput(
+                                  controller: _nameController,
+                                  hintText: '이름을 입력하세요.',
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              _InputGroup(
+                                label: '이메일',
+                                child: _TextInput(
+                                  controller: _emailController,
+                                  hintText: '이메일을 입력하세요.',
+                                  keyboardType: TextInputType.emailAddress,
+                                  readOnly: true,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              _InputGroup(
+                                label: '비밀번호',
+                                child: _PasswordInput(
+                                  controller: _passwordController,
+                                  hintText: '새 비밀번호',
+                                  obscureText: _hidePassword,
+                                  onToggle: () => setState(
+                                    () => _hidePassword = !_hidePassword,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '보안을 위해 정기적인 비밀번호 변경을 권장합니다.',
+                                style: TextStyle(
+                                  color: DashboardPalette.textMuted,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        _InputGroup(
-                          label: '이메일',
-                          child: _TextInput(
-                            controller: _emailController,
-                            hintText: '이메일을 입력하세요',
-                            keyboardType: TextInputType.emailAddress,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        _InputGroup(
-                          label: '비밀번호',
-                          child: _PasswordInput(
-                            controller: _passwordController,
-                            hintText: '새 비밀번호',
-                            obscureText: _hidePassword,
-                            onToggle: () =>
-                                setState(() => _hidePassword = !_hidePassword),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '보안을 위해 주기적인 비밀번호 변경을 권장합니다.',
-                          style: TextStyle(
-                            color: DashboardPalette.textMuted,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
-                  _SaveBar(onSave: () {}),
+                  _SaveBar(onSave: _saveProfile, isSaving: _saving),
                 ],
               ),
             ),
@@ -149,6 +392,7 @@ class _ProfilePhoto extends StatelessWidget {
       children: [
         Stack(
           children: [
+            // Placeholder avatar container.
             Container(
               width: 96,
               height: 96,
@@ -167,6 +411,7 @@ class _ProfilePhoto extends StatelessWidget {
               bottom: 0,
               right: 0,
               child: InkWell(
+                // Camera badge for future image picker.
                 onTap: onTap,
                 borderRadius: BorderRadius.circular(999),
                 child: Container(
@@ -237,11 +482,13 @@ class _TextInput extends StatelessWidget {
   final TextEditingController controller;
   final String hintText;
   final TextInputType? keyboardType;
+  final bool readOnly;
 
   const _TextInput({
     required this.controller,
     required this.hintText,
     this.keyboardType,
+    this.readOnly = false,
   });
 
   @override
@@ -249,6 +496,7 @@ class _TextInput extends StatelessWidget {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
+      readOnly: readOnly,
       style: const TextStyle(
         color: DashboardPalette.textDark,
         fontSize: 13.5,
@@ -337,8 +585,9 @@ class _PasswordInput extends StatelessWidget {
 
 class _SaveBar extends StatelessWidget {
   final VoidCallback onSave;
+  final bool isSaving;
 
-  const _SaveBar({required this.onSave});
+  const _SaveBar({required this.onSave, required this.isSaving});
 
   @override
   Widget build(BuildContext context) {
@@ -352,7 +601,7 @@ class _SaveBar extends StatelessWidget {
         width: double.infinity,
         height: 54,
         child: ElevatedButton(
-          onPressed: onSave,
+          onPressed: isSaving ? null : onSave,
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF0F5AB2),
             shape: RoundedRectangleBorder(

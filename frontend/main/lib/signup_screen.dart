@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
+import 'user_session.dart';
 
 /// 회원가입 화면에서 공통으로 사용하는 색상 팔레트.
 class SignupPalette {
@@ -49,12 +52,69 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   /// 회원가입 완료 콜백을 실행한다.
-  void _handleSignup() {
-    widget.onSignup();
+  Future<void> _handleSignup() async {
+    final name = _name.text.trim();
+    final email = _email.text.trim();
+    final password = _password.text;
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('모든 항목을 입력해주세요.')));
+      return;
+    }
+    if (!_isEmailValid) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이메일 형식을 확인해주세요.')));
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final uri = Uri.parse('http://3.35.210.200:8000/signup');
+      debugPrint('[signup] POST $uri name=$name email=$email');
+      final response = await http.post(
+        uri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': name,
+          'email': email,
+          'password': password,
+        }),
+      );
+      debugPrint(
+        '[signup] status=${response.statusCode} body=${response.body}',
+      );
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception('Signup failed: ${response.statusCode}');
+      }
+
+      UserSession.email = email;
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context, rootNavigator: true).pop();
+      widget.onSignup();
+    } catch (error) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('회원가입 실패: $error')));
+      }
+    }
   }
 
   /// 이메일 유효성 상태를 갱신한다.
   void _updateEmail(String value) {
+    // Lightweight email format check to drive UI state.
     // 간단한 정규식으로 이메일 형식을 확인한다.
     final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
     setState(() {
@@ -94,6 +154,7 @@ class _SignupScreenState extends State<SignupScreen> {
     }
 
     setState(() {
+      // Keep computed strength values for the meter UI.
       _strengthScore = score;
       _strengthLabel = label;
       _strengthColor = color;

@@ -21,18 +21,21 @@ class App extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true),
       home: Builder(
-        // 로그인 전 환영 화면에서 로그인/회원가입으로 이동한다.
+        // Entry flow uses the welcome screen; auth routes are pushed from it.
         builder: (context) => WelcomeScreen(
           onLoginTap: (context) {
+            // Login keeps this screen on the stack so user can return.
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => LoginScreen(
                   onLogin: () {
+                    // Successful auth replaces stack with upload dashboard.
                     Navigator.of(context).pushReplacement(
                       MaterialPageRoute(builder: (_) => const UploadScreen()),
                     );
                   },
                   onSignupClick: () {
+                    // Signup sits on top of login and returns or continues.
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => SignupScreen(
@@ -182,7 +185,7 @@ class _UploadScreenState extends State<UploadScreen> {
 
     try {
       // 로컬 API 엔드포인트로 파일을 전송한다.
-      final uri = Uri.parse('http://10.0.2.2:8000/analyze/file');
+      final uri = Uri.parse('http://3.35.210.200:8000/analyze/file');
       final request = http.MultipartRequest('POST', uri)
         ..files.add(await http.MultipartFile.fromPath('file', path));
 

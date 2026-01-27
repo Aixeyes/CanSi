@@ -1,13 +1,100 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'main.dart';
 import 'login_screen.dart';
 import 'signup_screen.dart';
 import 'profile_edit_screen.dart';
 import 'welcome_screen.dart';
+import 'user_session.dart';
+
+class _ProfileData {
+  final String name;
+  final String email;
+
+  const _ProfileData({required this.name, required this.email});
+}
 
 /// 사용자 프로필 화면.
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  late final String? _email;
+  late Future<_ProfileData?> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Email is cached in memory after login/signup.
+    _email = UserSession.email;
+    final email = _email;
+    if (email == null || email.isEmpty) {
+      // No identity available; show placeholder values.
+      _profileFuture = Future.value(null);
+    } else {
+      _profileFuture = _fetchProfile(email);
+    }
+  }
+
+  Future<_ProfileData> _fetchProfile(String email) async {
+    // Pull profile data using the email-based lookup endpoint.
+    final uri = Uri.parse(
+      'http://3.35.210.200:8000/profile?email=${Uri.encodeQueryComponent(email)}',
+    );
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      final body = response.body.trim();
+      final snippet = body.length > 300 ? body.substring(0, 300) : body;
+      throw Exception(
+        'Profile API error: ${response.statusCode} ${snippet.isEmpty ? '(empty body)' : snippet}',
+      );
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final profile = _unwrapProfileMap(data);
+    final name =
+        _pickString(profile, const ['name', 'username', 'user_name', 'full_name', 'fullName', 'nickname', 'display_name', 'displayName']) ??
+        _pickString(data, const ['name', 'username', 'user_name', 'full_name', 'fullName', 'nickname', 'display_name', 'displayName']);
+    final emailValue =
+        _pickString(profile, const ['email', 'email_address', 'emailAddress', 'mail']) ??
+        _pickString(data, const ['email', 'email_address', 'emailAddress', 'mail']);
+    return _ProfileData(
+      name: (name == null || name.isEmpty) ? email : name,
+      email: (emailValue == null || emailValue.isEmpty) ? email : emailValue,
+    );
+  }
+
+  Map<String, dynamic> _unwrapProfileMap(Map<String, dynamic> data) {
+    final nestedKeys = ['data', 'profile', 'user', 'result'];
+    for (final key in nestedKeys) {
+      final value = data[key];
+      if (value is Map<String, dynamic>) {
+        return value;
+      }
+    }
+    return data;
+  }
+
+  String? _pickString(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      if (!data.containsKey(key)) {
+        continue;
+      }
+      final value = data[key];
+      if (value == null) {
+        continue;
+      }
+      final text = value.toString().trim();
+      if (text.isNotEmpty) {
+        return text;
+      }
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,90 +106,143 @@ class ProfileScreen extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 430),
             child: Container(
               color: Colors.white,
-              child: Column(
-                children: [
-                  _ProfileAppBar(onBack: () => Navigator.of(context).pop()),
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      children: [
-                        const _ProfileHeader(),
-                        const _ProfileInfoSection(),
-                        const _ProfileEditButton(),
-                        const _SettingsSection(),
-                        const SizedBox(height: 12),
-                        _LogoutButton(
-                          onLogout: () {
-                            Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(
-                                builder: (_) => WelcomeScreen(
-                                  onLoginTap: (context) {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => LoginScreen(
-                                          onLogin: () {
-                                            Navigator.of(context)
-                                                .pushReplacement(
-                                              MaterialPageRoute(
-                                                builder: (_) =>
-                                                    const UploadScreen(),
-                                              ),
-                                            );
-                                          },
-                                          onSignupClick: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                builder: (_) => SignupScreen(
-                                                  onSignup: () {
-                                                    Navigator.of(context)
-                                                        .pushReplacement(
-                                                      MaterialPageRoute(
-                                                        builder: (_) =>
-                                                            const UploadScreen(),
-                                                      ),
-                                                    );
-                                                  },
-                                                  onBackToLogin: () =>
-                                                      Navigator.of(context)
-                                                          .pop(),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  onSignupTap: (context) {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => SignupScreen(
-                                          onSignup: () {
-                                            Navigator.of(context)
-                                                .pushReplacement(
-                                              MaterialPageRoute(
-                                                builder: (_) =>
-                                                    const UploadScreen(),
-                                              ),
-                                            );
-                                          },
-                                          onBackToLogin: () =>
-                                              Navigator.of(context).pop(),
-                                        ),
-                                      ),
-                                    );
-                                  },
+              child: FutureBuilder<_ProfileData?>(
+                future: _profileFuture,
+                builder: (context, snapshot) {
+                  // Fall back to cached email if API data is missing.
+                  final profile = snapshot.data;
+                  final displayName = profile?.name ?? 'User';
+                  final displayEmail = profile?.email ?? (_email ?? '');
+                  return Column(
+                    children: [
+                      _ProfileAppBar(onBack: () => Navigator.of(context).pop()),
+                      Expanded(
+                        child: ListView(
+                          padding: const EdgeInsets.only(bottom: 24),
+                          children: [
+                            // Inline error hint while keeping layout intact.
+                            if (snapshot.hasError)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  0,
+                                ),
+                                child: Text(
+                                  'Failed to load profile: ${snapshot.error}',
+                                  style: const TextStyle(
+                                    color: Color(0xFFDC2626),
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
-                              (_) => false,
-                            );
-                          },
+                            _ProfileHeader(
+                              name: displayName,
+                              email: displayEmail,
+                            ),
+                            _ProfileInfoSection(
+                              name: displayName,
+                              email: displayEmail,
+                            ),
+                            _ProfileEditButton(
+                              onEdit: () async {
+                                final updated = await Navigator.of(context)
+                                    .push<bool>(
+                                  MaterialPageRoute(
+                                    builder: (_) => const ProfileEditScreen(),
+                                  ),
+                                );
+                                if (updated == true && mounted) {
+                                  setState(() {
+                                    final email = _email;
+                                    if (email != null && email.isNotEmpty) {
+                                      _profileFuture = _fetchProfile(email);
+                                    }
+                                  });
+                                }
+                              },
+                            ),
+                            const _SettingsSection(),
+                            const SizedBox(height: 12),
+                            _LogoutButton(
+                              onLogout: () {
+                                // Clear session cache and return to welcome flow.
+                                UserSession.email = null;
+                                Navigator.of(context).pushAndRemoveUntil(
+                                  MaterialPageRoute(
+                                    builder: (_) => WelcomeScreen(
+                                      onLoginTap: (context) {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => LoginScreen(
+                                              onLogin: () {
+                                                Navigator.of(context)
+                                                    .pushReplacement(
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        const UploadScreen(),
+                                                  ),
+                                                );
+                                              },
+                                              onSignupClick: () {
+                                                Navigator.of(context).push(
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        SignupScreen(
+                                                      onSignup: () {
+                                                        Navigator.of(context)
+                                                            .pushReplacement(
+                                                          MaterialPageRoute(
+                                                            builder: (_) =>
+                                                                const UploadScreen(),
+                                                          ),
+                                                        );
+                                                      },
+                                                      onBackToLogin: () =>
+                                                          Navigator.of(context)
+                                                              .pop(),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      onSignupTap: (context) {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => SignupScreen(
+                                              onSignup: () {
+                                                Navigator.of(context)
+                                                    .pushReplacement(
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        const UploadScreen(),
+                                                  ),
+                                                );
+                                              },
+                                              onBackToLogin: () =>
+                                                  Navigator.of(context).pop(),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  (_) => false,
+                                );
+                              },
+                            ),
+                            const _AppVersionFooter(),
+                          ],
                         ),
-                        const _AppVersionFooter(),
-                      ],
-                    ),
-                  ),
-                ],
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -152,7 +292,10 @@ class _ProfileAppBar extends StatelessWidget {
 }
 
 class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader();
+  final String name;
+  final String email;
+
+  const _ProfileHeader({required this.name, required this.email});
 
   @override
   Widget build(BuildContext context) {
@@ -213,8 +356,8 @@ class _ProfileHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          const Text(
-            '조나단 스털링',
+          Text(
+            name,
             style: TextStyle(
               color: DashboardPalette.textDark,
               fontSize: 22,
@@ -223,7 +366,7 @@ class _ProfileHeader extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'j.sterling@counsel-law.com',
+            email,
             style: TextStyle(
               color: DashboardPalette.textMuted,
               fontSize: 12.5,
@@ -237,7 +380,10 @@ class _ProfileHeader extends StatelessWidget {
 }
 
 class _ProfileInfoSection extends StatelessWidget {
-  const _ProfileInfoSection();
+  final String name;
+  final String email;
+
+  const _ProfileInfoSection({required this.name, required this.email});
 
   @override
   Widget build(BuildContext context) {
@@ -256,12 +402,12 @@ class _ProfileInfoSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const _InfoCard(icon: Icons.badge, label: '이름', value: '조나단 스털링'),
+          _InfoCard(icon: Icons.badge, label: '이름', value: name),
           const SizedBox(height: 10),
-          const _InfoCard(
+          _InfoCard(
             icon: Icons.mail,
             label: '이메일 주소',
-            value: 'j.sterling@counsel-law.com',
+            value: email,
           ),
         ],
       ),
@@ -340,7 +486,9 @@ class _InfoCard extends StatelessWidget {
 }
 
 class _ProfileEditButton extends StatelessWidget {
-  const _ProfileEditButton();
+  final Future<void> Function() onEdit;
+
+  const _ProfileEditButton({required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -351,9 +499,7 @@ class _ProfileEditButton extends StatelessWidget {
         height: 48,
         child: ElevatedButton.icon(
           onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
-            );
+            onEdit();
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: DashboardPalette.primary,

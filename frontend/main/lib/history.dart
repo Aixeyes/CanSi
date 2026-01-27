@@ -197,6 +197,7 @@ class _HistoryList extends StatelessWidget {
     // 각 카드의 제목 길이 느낌을 다르게 준다.
     final cards = [0.6, 0.45, 0.5, 0.8, 0.55, 0.35];
 
+    // Render placeholders while real history data is not wired up.
     return ListView.separated(
       // 스켈레톤 카드 리스트 구성.
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),

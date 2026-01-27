@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'user_session.dart';
 
 /// 로그인 화면에서 공통으로 사용하는 색상 팔레트.
 class LoginPalette {
@@ -45,11 +46,18 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleLogin() {
+    // Cache the email locally for downstream profile lookup.
+    final trimmedEmail = _email.text.trim();
+    if (trimmedEmail.isNotEmpty) {
+      UserSession.email = trimmedEmail;
+    }
+    // TODO: Replace with real auth API call.
     widget.onLogin();
   }
 
   /// 소셜 로그인 URL을 외부 브라우저로 연다.
   Future<void> _openSocialLogin(String url) async {
+    // Launch external login flow; app-side OAuth is out of scope here.
     final uri = Uri.parse(url);
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
