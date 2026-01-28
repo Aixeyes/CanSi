@@ -9,33 +9,9 @@ except ImportError as exc:
     ) from exc
 
 
-def get_extracted_text(ocr_result: Any) -> str:
-    if isinstance(ocr_result, str):
-        return ocr_result
-    if isinstance(ocr_result, dict):
-        if "text" in ocr_result and isinstance(ocr_result["text"], str):
-            return ocr_result["text"]
-        if "content" in ocr_result and isinstance(ocr_result["content"], str):
-            return ocr_result["content"]
-        if isinstance(ocr_result.get("pages"), list):
-            texts = []
-            for page in ocr_result["pages"]:
-                if not isinstance(page, dict):
-                    continue
-                page_text = page.get("text")
-                if isinstance(page_text, str) and page_text.strip():
-                    texts.append(page_text)
-                    continue
-                page_content = page.get("content")
-                if isinstance(page_content, str) and page_content.strip():
-                    texts.append(page_content)
-            return "\n\n".join(texts)
-    return ""
-
-
 class UpstageOCR:
     def __init__(self, api_key: str | None = None, api_url: str | None = None) -> None:
-        self.api_key = api_key or os.getenv("UPSTAGE_API_KEY")
+        self.api_key = api_key or os.getenv("UPSTAGE_API_KEY") or "api필요"
         self.api_url = (
             api_url or os.getenv("UPSTAGE_OCR_URL") or "https://api.upstage.ai/v1/document-ai/ocr"
         )
@@ -46,6 +22,8 @@ class UpstageOCR:
         }
 
     def extract_text_from_file(self, file_path: str) -> str:
+        if self.api_key == "api필요":
+            return "api필요"
         with open(file_path, "rb") as file_handle:
             response = requests.post(
                 self.api_url,
@@ -54,9 +32,11 @@ class UpstageOCR:
                 timeout=60,
             )
         response.raise_for_status()
-        return get_extracted_text(response.json())
+        return self._extract_text(response.json())
 
     def extract_text_from_url(self, url: str) -> str:
+        if self.api_key == "api필요":
+            return "api필요"
         payload = {"url": url}
         response = requests.post(
             self.api_url,
@@ -65,9 +45,11 @@ class UpstageOCR:
             timeout=60,
         )
         response.raise_for_status()
-        return get_extracted_text(response.json())
+        return self._extract_text(response.json())
 
     def extract_text_from_base64(self, base64_data: str) -> str:
+        if self.api_key == "api필요":
+            return "api필요"
         payload = {"base64": base64_data}
         response = requests.post(
             self.api_url,
@@ -76,4 +58,29 @@ class UpstageOCR:
             timeout=60,
         )
         response.raise_for_status()
-        return get_extracted_text(response.json())
+        return self._extract_text(response.json())
+
+    def _extract_text(self, response_json: Dict[str, Any]) -> str:
+        if "text" in response_json and isinstance(response_json["text"], str):
+            return response_json["text"]
+        if "content" in response_json and isinstance(response_json["content"], str):
+            return response_json["content"]
+        return ""
+
+
+def get_extracted_text(result: Any) -> str:
+    """
+    Normalize OCR results to plain text.
+    - If result is already a string, return it.
+    - If result is a dict-like payload, extract common text fields.
+    """
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        text = result.get("text")
+        if isinstance(text, str):
+            return text
+        content = result.get("content")
+        if isinstance(content, str):
+            return content
+    return ""

@@ -42,10 +42,10 @@ class EmbeddingManager:
             return "api필요"
         scored: List[tuple[float, Precedent]] = []
         for precedent in precedents:
-            precedent_embedding = getattr(precedent, "embedding", None)
-            if not precedent_embedding:
+            embedding = getattr(precedent, "embedding", None)
+            if embedding is None:
                 continue
-            score = self.calculate_similarity(target_embedding, precedent_embedding)
+            score = self.calculate_similarity(target_embedding, embedding)
             scored.append((score, precedent))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [item[1] for item in scored[:top_k]]

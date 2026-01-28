@@ -1,19 +1,23 @@
 ﻿import os
 from typing import Optional
 
-try:
-    from openai import OpenAI
-except ImportError as exc:
-    raise ImportError(
-        "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
-    ) from exc
+
 
 
 class LLMSummarizer:
     def __init__(self, model: Optional[str] = None) -> None:
         self.model = model or os.getenv("OPENAI_SUMMARY_MODEL") or "gpt-4o"
         self.api_key = os.getenv("OPENAI_API_KEY") or "api필요"
-        self._client = OpenAI(api_key=self.api_key) if self.api_key != "api필요" else None
+        self._client = self._build_client() if self.api_key != "api필요" else None
+
+    def _build_client(self):
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError(
+                "openai 패키지가 없습니다. `pip install openai`로 설치하세요."
+            ) from exc
+        return OpenAI(api_key=self.api_key)
 
     def generate_summary(self, text: str) -> str:
         if self.api_key == "api필요":

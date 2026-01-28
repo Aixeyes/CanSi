@@ -1,14 +1,13 @@
 import os
 
-try:
-    from openai import OpenAI
-except ImportError as exc:
-    raise ImportError(
-        "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
-    ) from exc
 
-
-def _get_client() -> OpenAI:
+def _get_client():
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise RuntimeError(
+            "openai 패키지가 없습니다. `pip install openai`로 설치하세요."
+        ) from exc
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("환경 변수에 OPENAI_API_KEY가 설정되어 있지 않습니다.")

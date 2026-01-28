@@ -4,12 +4,13 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - fastapi
-  - uvicorn
-  - mysqlclient 
   - pip
   - pip:
-      - python-dotenv
+      - fastapi
+      - openai
+      - requests
       - uvicorn[standard]
+      - python-dotenv
       - mysql-connector-python
-
+      - python-multipart
+      - email-validator
