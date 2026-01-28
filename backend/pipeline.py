@@ -74,16 +74,37 @@ class ContractAnalysisPipeline:
         # 4단계: 판례 데이터 수집
         print("[4/8] 공공 판례 API 호출...")
         all_precedents = []
+        min_results = int(os.getenv("PRECEDENT_MIN_RESULTS") or "3")
         for clause in risky_clauses:
-            precedents = self.precedent_fetcher.fetch_precedents(clause.title)
+            category = self.risk_mapper.map_risk_category(clause, all_precedents)
+            keywords = [clause.title]
+            if category and category != "기타":
+                keywords.extend(self.risk_mapper.get_keywords_for_category(category))
+            query = " ".join([kw for kw in keywords if kw])
+            precedents = self.precedent_fetcher.fetch_precedents(query)
+            if isinstance(precedents, str):
+                precedents = []
+            if len(precedents) < min_results and clause.title:
+                fallback = self.precedent_fetcher.fetch_precedents(clause.title)
+                if isinstance(fallback, str):
+                    fallback = []
+                # merge by case_id to avoid duplicates
+                seen = {p.case_id for p in precedents}
+                for p in fallback:
+                    if p.case_id and p.case_id not in seen:
+                        precedents.append(p)
+                        seen.add(p.case_id)
             all_precedents.extend(precedents)
         print(f"     판례 {len(all_precedents)}개 수집")
         
         # 5단계: 임베딩 생성 및 유사도 검색
         print("[5/8] 임베딩 생성 및 유사도 검색..")
         for clause in risky_clauses:
+            clause_text = self._format_clause_text([clause]) or (
+                f"{clause.title or clause.article_num}\n{clause.content}"
+            )
             similar_precedents = self.embedding_manager.find_similar_precedents(
-                clause, all_precedents
+                clause_text, all_precedents
             )
             clause.related_precedents = similar_precedents
         print("     유사도 검색 완료")

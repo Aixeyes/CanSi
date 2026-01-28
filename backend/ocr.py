@@ -66,3 +66,21 @@ class UpstageOCR:
         if "content" in response_json and isinstance(response_json["content"], str):
             return response_json["content"]
         return ""
+
+
+def get_extracted_text(result: Any) -> str:
+    """
+    Normalize OCR results to plain text.
+    - If result is already a string, return it.
+    - If result is a dict-like payload, extract common text fields.
+    """
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        text = result.get("text")
+        if isinstance(text, str):
+            return text
+        content = result.get("content")
+        if isinstance(content, str):
+            return content
+    return ""

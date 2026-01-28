@@ -1,0 +1,16 @@
+name: appenv
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - fastapi
+      - openai
+      - requests
+      - uvicorn[standard]
+      - python-dotenv
+      - mysql-connector-python
+      - python-multipart
+      - email-validator

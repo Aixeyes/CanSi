@@ -43,18 +43,22 @@ class TextProcessor:
         """
         clauses = []
         
-        # "제n조" 패턴으로 분리
-        clause_pattern = r'제(\d+)조\s+(.+?)(?=제\d+조|$)'
+        # "제n조" 패턴으로 분리 (괄호 제목/공백 변형 허용)
+        clause_pattern = r'제\s*(\d+)\s*조\s*(?:\((.*?)\))?\s*(.+?)(?=제\s*\d+\s*조|$)'
         matches = re.finditer(clause_pattern, text, re.DOTALL)
         
         for match in matches:
             clause_num = match.group(1)
-            clause_text = match.group(2).strip()
-            
-            # 첫 줄을 제목으로, 나머지를 내용으로
-            lines = clause_text.split('\n', 1)
-            title = lines[0].strip()
-            content = lines[1].strip() if len(lines) > 1 else ""
+            title_raw = (match.group(2) or "").strip()
+            body_raw = match.group(3).strip()
+
+            # 괄호 제목이 없으면 첫 줄을 제목 후보로 사용
+            title = title_raw
+            content = body_raw
+            if not title:
+                lines = body_raw.split('\n', 1)
+                title = lines[0].strip()
+                content = lines[1].strip() if len(lines) > 1 else ""
             
             clause = Clause(
                 id=f"clause_{clause_num}",
