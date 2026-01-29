@@ -25,6 +25,7 @@ class Clause:
     risk_level: Optional[RiskType] = None
     risk_reason: Optional[str] = None
     related_precedents: List = field(default_factory=list)
+    related_laws: List = field(default_factory=list)
 
 
 @dataclass
@@ -40,6 +41,20 @@ class Precedent:
 
 
 @dataclass
+class Law:
+    """법령/행정규칙/자치법규 정보"""
+    doc_id: str
+    doc_type: str                       # law | admrul | ordin
+    title: str
+    summary: str = ""
+    content: str = ""
+    date: str = ""
+    org: str = ""
+    url: str = ""
+    similarity_score: Optional[float] = None
+
+
+@dataclass
 class ContractAnalysisResult:
     """계약서 분석 결과"""
     filename: str
@@ -47,6 +62,7 @@ class ContractAnalysisResult:
     clauses: List[Clause]
     risky_clauses: List[Clause]
     precedents: List[Precedent]
+    laws: List[Law]
     llm_summary: Optional[str] = None
     debate_transcript: Optional[List[dict]] = None
     contract_type: Optional[str] = None

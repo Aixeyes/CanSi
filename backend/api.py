@@ -62,6 +62,7 @@ def _format_result_for_app(result: Any) -> dict:
             "highlights": highlights,
         },
         "risky_clauses": _serialize(result.risky_clauses),
+        "laws": _serialize(getattr(result, "laws", [])),
         "debate": {"transcript": result.debate_transcript},
         "report": result.llm_summary,
     }

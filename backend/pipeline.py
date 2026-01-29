@@ -12,6 +12,7 @@ from models import ContractAnalysisResult, Clause
 from text_processor import TextProcessor
 from risk_assessor import RiskAssessor
 from precedent_fetcher import PrecedentFetcher
+from law_fetcher import LawFetcher
 from embedding_manager import EmbeddingManager
 from risk_mapper import RiskMapper
 from llm_summarizer import LLMSummarizer
@@ -28,6 +29,7 @@ class ContractAnalysisPipeline:
         self.text_processor = TextProcessor()
         self.risk_assessor = RiskAssessor()
         self.precedent_fetcher = PrecedentFetcher()
+        self.law_fetcher = LawFetcher()
         self.embedding_manager = EmbeddingManager()
         self.risk_mapper = RiskMapper()
         self.llm_summarizer = LLMSummarizer()
@@ -74,17 +76,27 @@ class ContractAnalysisPipeline:
         # 4단계: 판례 데이터 수집
         print("[4/8] 공공 판례 API 호출...")
         all_precedents = []
-        min_results = int(os.getenv("PRECEDENT_MIN_RESULTS") or "3")
+        all_laws = []
+        min_precedent_results = int(os.getenv("PRECEDENT_MIN_RESULTS") or "3")
+        min_law_results = int(os.getenv("LAW_MIN_RESULTS") or "3")
+        domain_keywords = [
+            kw.strip()
+            for kw in (
+                os.getenv("LAW_DOMAIN_KEYWORDS")
+                or "부동산,임대차,임대,임차,주택,전세,월세,보증금"
+            ).split(",")
+            if kw.strip()
+        ]
         for clause in risky_clauses:
             category = self.risk_mapper.map_risk_category(clause, all_precedents)
-            keywords = [clause.title]
+            keywords = domain_keywords + [clause.title]
             if category and category != "기타":
                 keywords.extend(self.risk_mapper.get_keywords_for_category(category))
             query = " ".join([kw for kw in keywords if kw])
             precedents = self.precedent_fetcher.fetch_precedents(query)
             if isinstance(precedents, str):
                 precedents = []
-            if len(precedents) < min_results and clause.title:
+            if len(precedents) < min_precedent_results and clause.title:
                 fallback = self.precedent_fetcher.fetch_precedents(clause.title)
                 if isinstance(fallback, str):
                     fallback = []
@@ -95,10 +107,26 @@ class ContractAnalysisPipeline:
                         precedents.append(p)
                         seen.add(p.case_id)
             all_precedents.extend(precedents)
-        print(f"     판례 {len(all_precedents)}개 수집")
+            laws = self.law_fetcher.fetch_laws(query)
+            if isinstance(laws, str):
+                laws = []
+            if len(laws) < min_law_results and clause.title:
+                fallback = self.law_fetcher.fetch_laws(clause.title)
+                if isinstance(fallback, str):
+                    fallback = []
+                seen = {(l.doc_type, l.doc_id) for l in laws}
+                for law in fallback:
+                    key = (law.doc_type, law.doc_id)
+                    if law.doc_id and key not in seen:
+                        laws.append(law)
+                        seen.add(key)
+            all_laws.extend(laws)
+        all_laws = self.law_fetcher._dedupe_laws(all_laws)
+        print(f"     precedents {len(all_precedents)}, laws {len(all_laws)} collected")
         
         # 5단계: 임베딩 생성 및 유사도 검색
         print("[5/8] 임베딩 생성 및 유사도 검색..")
+        self.embedding_manager.attach_embeddings(all_laws, self._format_law_text)
         for clause in risky_clauses:
             clause_text = self._format_clause_text([clause]) or (
                 f"{clause.title or clause.article_num}\n{clause.content}"
@@ -107,6 +135,10 @@ class ContractAnalysisPipeline:
                 clause_text, all_precedents
             )
             clause.related_precedents = similar_precedents
+            similar_laws = self.embedding_manager.find_similar_laws(
+                clause_text, all_laws
+            )
+            clause.related_laws = similar_laws
         print("     유사도 검색 완료")
         
         # 6단계: 위험 유형 매핑
@@ -139,6 +171,7 @@ class ContractAnalysisPipeline:
             clauses=clauses,
             risky_clauses=risky_clauses,
             precedents=all_precedents,
+            laws=all_laws,
             llm_summary=llm_summary,
             debate_transcript=debate_transcript,
             contract_type=contract_type
@@ -183,6 +216,7 @@ class ContractAnalysisPipeline:
             "clauses": [asdict(c) for c in result.clauses],
             "risky_clauses": [asdict(c) for c in result.risky_clauses],
             "precedents": [asdict(p) for p in result.precedents],
+            "laws": [asdict(l) for l in result.laws],
             "summary": result.llm_summary,
             "debate_transcript": result.debate_transcript,
             "contract_type": result.contract_type
@@ -198,6 +232,11 @@ class ContractAnalysisPipeline:
             json.dump(output_data, f, ensure_ascii=False, indent=2, default=serialize)
         
         print(f"결과 저장: {output_path}")
+
+    @staticmethod
+    def _format_law_text(law) -> str:
+        parts = [law.title, law.summary, law.content]
+        return "\n".join([str(p).strip() for p in parts if p and str(p).strip()])
 
     @staticmethod
     def _format_clause_text(clauses: List[Clause]) -> str:

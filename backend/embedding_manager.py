@@ -9,7 +9,7 @@ except ImportError as exc:
         "필수 패키지가 없습니다: openai. `pip install openai`로 설치하세요."
     ) from exc
 
-from models import Precedent
+from models import Precedent, Law
 
 
 class EmbeddingManager:
@@ -37,15 +37,39 @@ class EmbeddingManager:
     def find_similar_precedents(
         self, target_text: str, precedents: List[Precedent], top_k: int = 3
     ) -> List[Precedent] | str:
+        return self._find_similar_items(target_text, precedents, top_k)
+
+    def find_similar_laws(
+        self, target_text: str, laws: List[Law], top_k: int = 3
+    ) -> List[Law] | str:
+        return self._find_similar_items(target_text, laws, top_k)
+
+    def attach_embeddings(self, items: List[object], text_getter, max_items: Optional[int] = None):
+        if not items:
+            return []
+        if self.api_key == "api필요":
+            return "api필요"
+        limit = max_items if max_items is not None else len(items)
+        for item in items[:limit]:
+            text = text_getter(item)
+            if not text:
+                continue
+            embedding = self.generate_embedding(text)
+            if embedding == "api필요":
+                return "api필요"
+            setattr(item, "embedding", embedding)
+        return items
+
+    def _find_similar_items(self, target_text: str, items: List[object], top_k: int):
         target_embedding = self.generate_embedding(target_text)
         if target_embedding == "api필요":
             return "api필요"
-        scored: List[tuple[float, Precedent]] = []
-        for precedent in precedents:
-            embedding = getattr(precedent, "embedding", None)
+        scored: List[tuple[float, object]] = []
+        for item in items:
+            embedding = getattr(item, "embedding", None)
             if embedding is None:
                 continue
             score = self.calculate_similarity(target_embedding, embedding)
-            scored.append((score, precedent))
+            scored.append((score, item))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [item[1] for item in scored[:top_k]]

@@ -42,6 +42,14 @@ pip install fastapi uvicorn  # API 사용 시
 ### 선택 (판례)
 - `PRECEDENT_API_URL`: `https://www.law.go.kr/DRF/lawSearch.do`
 - `PRECEDENT_API_KEY`: 법령정보 Open API 발급 OC 값
+- `LAW_API_URL`: `https://www.law.go.kr/DRF/lawSearch.do` (기본값: `PRECEDENT_API_URL`)
+- `LAW_API_KEY`: 법령정보 Open API OC 값 (기본값: `PRECEDENT_API_KEY`)
+- `LAW_TARGETS`: `law,ordin` (현행법령, 자치법규)
+- `LAW_MIN_RESULTS`: clause 당 최소 결과 수 (기본 3)
+- `LAW_DETAIL_LIMIT`: 상세 본문 호출 제한 (기본 10)
+- `LAW_DOMAIN_KEYWORDS`: 법령 결과 필터 키워드 (기본: 부동산,임대차,임대,임차,주택,전세,월세,보증금)
+- `LAW_TITLE_MUST_KEYWORDS`: 법령명에 반드시 포함될 키워드 (기본: 주택임대차보호법)
+- `LAW_BASE_QUERY`: 법령 기본 조회어 (기본: 주택임대차보호법)
 
 #### Windows (PowerShell)
 ```powershell
@@ -49,6 +57,12 @@ $env:UPSTAGE_API_KEY = "your-upstage-key"
 $env:OPENAI_API_KEY = "your-openai-key"
 $env:PRECEDENT_API_URL = "https://www.law.go.kr/DRF/lawSearch.do"
 $env:PRECEDENT_API_KEY = "your-oc"
+$env:LAW_API_URL = "https://www.law.go.kr/DRF/lawSearch.do"
+$env:LAW_API_KEY = "your-oc"
+$env:LAW_TARGETS = "law,ordin"
+$env:LAW_DOMAIN_KEYWORDS = "부동산,임대차,임대,임차,주택,전세,월세,보증금"
+$env:LAW_TITLE_MUST_KEYWORDS = "주택임대차보호법"
+$env:LAW_BASE_QUERY = "주택임대차보호법"
 ```
 
 #### Windows (cmd)
@@ -57,6 +71,12 @@ set UPSTAGE_API_KEY=your-upstage-key
 set OPENAI_API_KEY=your-openai-key
 set PRECEDENT_API_URL=https://www.law.go.kr/DRF/lawSearch.do
 set PRECEDENT_API_KEY=your-oc
+set LAW_API_URL=https://www.law.go.kr/DRF/lawSearch.do
+set LAW_API_KEY=your-oc
+set LAW_TARGETS=law,ordin
+set LAW_DOMAIN_KEYWORDS=부동산,임대차,임대,임차,주택,전세,월세,보증금
+set LAW_TITLE_MUST_KEYWORDS=주택임대차보호법
+set LAW_BASE_QUERY=주택임대차보호법
 ```
 
 > 주의: 키 값에 따옴표(`'`, `"`)가 포함되면 인증이 실패합니다.
@@ -102,6 +122,7 @@ curl -X POST "http://127.0.0.1:8000/analyze/file" ^
   "clauses": [],
   "risky_clauses": [],
   "precedents": [],
+  "laws": [],
   "summary": "...",
   "debate_transcript": [],
   "contract_type": "jeonse"
@@ -138,6 +159,7 @@ backend/
   text_processor.py
   risk_assessor.py
   precedent_fetcher.py
+  law_fetcher.py
   embedding_manager.py
   risk_mapper.py
   debate_agents.py
