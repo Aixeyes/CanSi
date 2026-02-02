@@ -50,3 +50,20 @@ class LLMSummarizer:
             ],
         )
         return response.choices[0].message.content or ""
+
+    def generate_debate_summary(self, transcript_text: str) -> str:
+        if self.api_key == "api필요":
+            return "api필요"
+        prompt = (
+            "Summarize the debate about a single contract clause. "
+            "Focus on key dispute points and any common ground. "
+            "Respond in Korean in 2-4 sentences."
+        )
+        response = self._client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": transcript_text},
+            ],
+        )
+        return response.choices[0].message.content or ""
