@@ -1,7 +1,8 @@
-"""
+﻿"""
 계약서 위험 조항에 대한 변호사/검사 페르소나 토론 에이전트.
 """
 
+import math
 import os
 from typing import Dict, List, Optional
 
@@ -30,6 +31,21 @@ TENANT_LAWYER_SYSTEM_PROMPT = (
 )
 
 
+
+# 중재자 시스템 프롬프트 (판사 역할)
+MEDIATOR_SYSTEM_PROMPT = (
+    "You are a judge presiding over a contract clause dispute between landlord and tenant lawyers. "  # 판사 역할: 임대인/임차인 변호사 분쟁 심리
+    "Maintain a firm, judicial tone and provide a concise determination-style summary. "  # 판사 톤 유지 + 간결한 결정문 스타일 요약
+    "Your job is to (1) list interpretation points by each perspective, "  # 양측 관점별 해석 포인트 나열
+    "(2) count the number of distinct interpretation issues, "  # 쟁점(해석 이슈) 개수 집계
+    "and (3) list repeated or common interpretation points. "  # 반복/공통 해석 포인트 정리
+    "Return ONLY a JSON object with the following keys:\n"
+    "perspective_points: {\"landlord\": [..], \"tenant\": [..]},\n"
+    "issue_count: <number>,\n"
+    "common_points: [..]\n"
+    "No extra text. Respond in Korean."  # JSON만 반환, 한국어로 응답
+)
+
 class DebateAgents:
     def __init__(self, model: str | None = None) -> None:
         self.model = model or os.getenv("OPENAI_DEBATE_MODEL") or "gpt-4o"
@@ -38,17 +54,33 @@ class DebateAgents:
         self,
         clauses: List[Clause],
         raw_text: Optional[str] = None,
-        rounds: int = 2,
+        rounds: int = 0,
+        max_rounds: int = 3,
         contract_type: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         if not os.getenv("OPENAI_API_KEY"):
             return [{"speaker": "system", "content": "API 키가 필요합니다."}]
+        env_max_rounds = os.getenv("DEBATE_MAX_ROUNDS")
+        if env_max_rounds:
+            try:
+                max_rounds = int(env_max_rounds)
+            except ValueError:
+                pass
+
 
         if not contract_type:
             contract_type = self._detect_contract_type(raw_text or "")
         context = self._format_clauses(clauses)
         transcript: List[Dict[str, str]] = []
-        for _ in range(rounds):
+        # rounds가 주어지면(>0) 그대로 사용하고, 아니면 중재자 기반 루프를 max_rounds까지 수행합니다.
+        if rounds and rounds > 0:
+            loop_limit = rounds
+            use_mediator = False
+        else:
+            loop_limit = max_rounds
+            use_mediator = True
+
+        for _ in range(loop_limit):
             landlord_reply = self._reply(
                 "임대인 변호사",
                 LANDLORD_LAWYER_SYSTEM_PROMPT,
@@ -65,6 +97,15 @@ class DebateAgents:
                 transcript,
             )
             transcript.append({"speaker": "임차인 변호사", "content": tenant_reply})
+            if use_mediator:
+                mediator_reply = self._mediator_reply(
+                    contract_type,
+                    context,
+                    transcript,
+                )
+                transcript.append({"speaker": "판사", "content": mediator_reply})
+                if self._should_terminate(mediator_reply):
+                    break
         return transcript
 
     def _reply(
@@ -87,6 +128,57 @@ class DebateAgents:
             "Respond in Korean."
         )
         return chat_completion(prompt=prompt, model=self.model, system_prompt=system_prompt)
+
+    def _mediator_reply(
+        self,
+        contract_type: str,
+        context: str,
+        transcript: List[Dict[str, str]],
+    ) -> str:
+        history = self._format_history(transcript)
+        prompt = (
+            f"Contract type: {contract_type}\n"
+            "Below is a summary of risky clauses in a real estate contract.\n"
+            f"{context}\n\n"
+            "Conversation so far:\n"
+            f"{history}\n\n"
+            "Analyze the debate and return the JSON only."
+        )
+        return chat_completion(
+            prompt=prompt,
+            model=self.model,
+            system_prompt=MEDIATOR_SYSTEM_PROMPT,
+        )
+
+    @staticmethod
+    def _should_terminate(mediator_reply: str) -> bool:
+        # 종료 기준: issue_count <= 0이면 종료, common_points 길이가 기준 이상이면 종료
+        # JSON 파싱 실패 시에는 계속 진행
+        try:
+            import json
+
+            data = json.loads(mediator_reply)
+            issue_count = data.get("issue_count")
+            common_points = data.get("common_points") or []
+            min_common = int(os.getenv("DEBATE_MIN_COMMON_POINTS", "2"))
+            common_ratio = float(os.getenv("DEBATE_COMMON_RATIO", "0.5"))
+            if isinstance(issue_count, int) and issue_count <= 0:
+                return True
+            if isinstance(issue_count, int) and issue_count > 0:
+                try:
+                    if issue_count <= 1:
+                        return True
+                    if len(common_points) >= issue_count:
+                        return True
+                    threshold = max(min_common, math.ceil(issue_count * common_ratio))
+                    return len(common_points) >= threshold
+                except Exception:
+                    return False
+            if common_points and len(common_points) >= min_common:
+                return True
+            return False
+        except Exception:
+            return False
 
     @staticmethod
     def _format_clauses(clauses: List[Clause]) -> str:

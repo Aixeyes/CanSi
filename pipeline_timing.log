@@ -1,0 +1,17 @@
+16:30:42 jpgs found: 1
+16:30:42 step1 OCR start
+16:30:42 step1 OCR done
+16:30:42 step2 clean/split start
+16:30:42 step2 done clauses=12
+16:30:42 step3 risk filter start
+16:31:11 step3 done risky=9
+16:31:11 step4 fetch start
+16:31:11 step4 done precedents=0 laws=0
+16:31:11 step5 embedding start
+16:31:18 step5 done
+16:31:18 step6 mapping start
+16:31:18 step6 done
+16:31:18 step7 debate start
+16:33:54 step7 done
+16:33:54 step8 summary start
+16:34:13 step8 done

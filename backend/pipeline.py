@@ -1,9 +1,10 @@
-"""
+﻿"""
 계약서 위험조항 분석 파이프라인 - 메인 파이프라인
 """
 
 import os
 import json
+import time
 from typing import List, Optional
 from dataclasses import asdict
 
@@ -59,22 +60,29 @@ class ContractAnalysisPipeline:
         
         # 1단계: OCR
         print(f"[1/8] OCR 진행 중.. ({filename})")
+        step_start = time.perf_counter()
         ocr_result = self.ocr.extract_text_from_file(file_path)
         raw_text = get_extracted_text(ocr_result)
+        print(f"     OCR 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 2단계: 텍스트 정제 및 조항 분리
         print("[2/8] 텍스트 정제 및 조항 분리...")
+        step_start = time.perf_counter()
         clean_text = self.text_processor.clean_text(raw_text)
         clauses = self.text_processor.split_clauses_with_fallback(clean_text)
         print(f"     총 {len(clauses)}개 조항 추출")
+        print(f"     텍스트 정제/분리 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 3단계: 위험 조항 필터링
         print("[3/8] 위험 조항 필터링...")
+        step_start = time.perf_counter()
         risky_clauses = self.risk_assessor.filter_risky_clauses(clauses)
         print(f"     위험 조항 {len(risky_clauses)}개 발견")
+        print(f"     위험 조항 필터링 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 4단계: 판례 데이터 수집
         print("[4/8] 공공 판례 API 호출...")
+        step_start = time.perf_counter()
         all_precedents = []
         all_laws = []
         min_precedent_results = int(os.getenv("PRECEDENT_MIN_RESULTS") or "3")
@@ -123,9 +131,11 @@ class ContractAnalysisPipeline:
             all_laws.extend(laws)
         all_laws = self.law_fetcher._dedupe_laws(all_laws)
         print(f"     precedents {len(all_precedents)}, laws {len(all_laws)} collected")
+        print(f"     판례/법령 수집 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 5단계: 임베딩 생성 및 유사도 검색
         print("[5/8] 임베딩 생성 및 유사도 검색..")
+        step_start = time.perf_counter()
         self.embedding_manager.attach_embeddings(all_laws, self._format_law_text)
         for clause in risky_clauses:
             clause_text = self._format_clause_text([clause]) or (
@@ -140,29 +150,40 @@ class ContractAnalysisPipeline:
             )
             clause.related_laws = similar_laws
         print("     유사도 검색 완료")
+        print(f"     임베딩/유사도 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 6단계: 위험 유형 매핑
         print("[6/8] 위험 유형 매핑...")
+        step_start = time.perf_counter()
         risk_mappings = {}
         for clause in risky_clauses:
             category = self.risk_mapper.map_risk_category(clause, all_precedents)
             risk_mappings[clause.id] = category
         print("     위험 유형 분류 완료")
+        print(f"     위험 유형 매핑 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 7단계: 갑/을 토론 생성
         print("[7/8] 갑/을 토론 생성...")
+        step_start = time.perf_counter()
         contract_type = self.debate_agents.detect_contract_type(raw_text)
         debate_transcript = self.debate_agents.run(
             risky_clauses,
             raw_text=raw_text,
             contract_type=contract_type,
         )
+        # Align legacy labels with the new judge role name.
+        for turn in debate_transcript:
+            if turn.get("speaker") in ("mediator", "중재자"):
+                turn["speaker"] = "판사"
+        print(f"     토론 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
 
         # 8단계: LLM 요약 생성
         print("[8/8] LLM 조항 요약 생성...")
+        step_start = time.perf_counter()
         llm_summary = self.llm_summarizer.generate_comprehensive_report(
             self._format_clause_text(risky_clauses)
         )
+        print(f"     요약 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 결과 반환
         result = ContractAnalysisResult(
@@ -184,29 +205,6 @@ class ContractAnalysisPipeline:
         """Pipeline-only analysis helper (no negotiation)."""
         return self.analyze(file_path)
 
-    def analyze_and_negotiate(self, file_path: str, rounds: int = 1):
-        """
-        Run pipeline analysis then pass clause results to the negotiation service.
-
-        Returns:
-            (analysis_result, negotiation_result)
-        """
-        analysis_result = self.analyze(file_path)
-        try:
-            from contract.service import ContractNegotiationService
-        except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "contract.service 모듈이 없어 협상 기능을 사용할 수 없습니다."
-            ) from exc
-
-        negotiation_service = ContractNegotiationService()
-        negotiation_result = negotiation_service._negotiate(
-            analysis_result.raw_text,
-            analysis_result.clauses,
-            rounds,
-        )
-        return analysis_result, negotiation_result
-    
     def export_result(self, result: ContractAnalysisResult, output_path: str):
         """분석 결과를 JSON으로 내보내기"""
         output_data = {
