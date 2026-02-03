@@ -163,7 +163,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     });
 
     try {
-      final uri = Uri.parse('http://3.35.210.200:8000/profile');
+      final uri = Uri.parse('http://3.38.43.65:8000/profile');
       final payload = <String, dynamic>{'email': email};
       if (name.isNotEmpty) {
         payload['name'] = name;

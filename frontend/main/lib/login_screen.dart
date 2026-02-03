@@ -46,11 +46,29 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleLogin() {
-    // Cache the email locally for downstream profile lookup.
     final trimmedEmail = _email.text.trim();
-    if (trimmedEmail.isNotEmpty) {
-      UserSession.email = trimmedEmail;
+    final trimmedPassword = _password.text.trim();
+
+    if (trimmedEmail.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('이메일을 입력해주세요.')),
+        );
+      }
+      return;
     }
+
+    if (trimmedPassword.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('비밀번호를 입력해주세요.')),
+        );
+      }
+      return;
+    }
+
+    // Cache the email locally for downstream profile lookup.
+    UserSession.email = trimmedEmail;
     // TODO: Replace with real auth API call.
     widget.onLogin();
   }

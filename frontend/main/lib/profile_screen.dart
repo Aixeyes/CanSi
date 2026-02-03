@@ -44,7 +44,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<_ProfileData> _fetchProfile(String email) async {
     // Pull profile data using the email-based lookup endpoint.
     final uri = Uri.parse(
-      'http://3.35.210.200:8000/profile?email=${Uri.encodeQueryComponent(email)}',
+      'http://3.38.43.65:8000/profile?email=${Uri.encodeQueryComponent(email)}',
     );
     final response = await http.get(uri);
     if (response.statusCode != 200) {
