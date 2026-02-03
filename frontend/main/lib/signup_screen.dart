@@ -77,7 +77,7 @@ class _SignupScreenState extends State<SignupScreen> {
     );
 
     try {
-      final uri = Uri.parse('http://3.35.210.200:8000/signup');
+      final uri = Uri.parse('http://3.38.43.65:8000/signup');
       debugPrint('[signup] POST $uri name=$name email=$email');
       final response = await http.post(
         uri,

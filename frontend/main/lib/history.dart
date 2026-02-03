@@ -17,7 +17,7 @@ class HistoryScreen extends StatelessWidget {
               color: Colors.white,
               child: Stack(
                 children: [
-                  // 기본 레이아웃은 Column, 버튼은 Stack으로 겹쳐 배치.
+                  // 기본 레이아웃은 Column, 버튼은 Stack으로 배치.
                   Column(
                     children: [
                       const _HistoryAppBar(),
@@ -26,7 +26,7 @@ class HistoryScreen extends StatelessWidget {
                       const _HistoryFooter(),
                     ],
                   ),
-                  // 우측 하단 스크롤 탑 버튼.
+                  // 우측 하단 스크롤 버튼.
                   const Positioned(
                     right: 24,
                     bottom: 80,
@@ -42,14 +42,14 @@ class HistoryScreen extends StatelessWidget {
   }
 }
 
-/// 상단 앱 바(뒤로가기/계정 아이콘 포함).
+/// 상단 앱바(뒤로가기/계정 아이콘 포함).
 class _HistoryAppBar extends StatelessWidget {
   const _HistoryAppBar();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      // 상단 영역은 구분선을 가진 고정 헤더 스타일.
+      // 상단 영역 구분용 보더.
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFFF0F2F4))),
       ),
@@ -57,7 +57,7 @@ class _HistoryAppBar extends StatelessWidget {
       child: Row(
         children: [
           IconButton(
-            // 뒤로가기.
+            // 뒤로가기
             onPressed: () => Navigator.of(context).pop(),
             icon: const Icon(Icons.arrow_back),
             color: DashboardPalette.textDark,
@@ -79,7 +79,7 @@ class _HistoryAppBar extends StatelessWidget {
             ),
           ),
           IconButton(
-            // 프로필(향후 설정/계정 연결 가능).
+            // 추후 계정 화면 연결 가능.
             onPressed: () {},
             icon: const Icon(Icons.account_circle),
             color: DashboardPalette.textDark,
@@ -104,7 +104,7 @@ class _HistorySearch extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Column(
         children: [
-          // 계약서 이름 검색 입력.
+          // 계약서/파일명 검색.
           TextField(
             decoration: InputDecoration(
               hintText: '계약서 이름 검색',
@@ -137,7 +137,7 @@ class _HistorySearch extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          // 기간 필터 스크롤 칩.
+          // 기간 필터 칩.
           SizedBox(
             height: 36,
             child: ListView(
@@ -157,7 +157,7 @@ class _HistorySearch extends StatelessWidget {
   }
 }
 
-/// 기간 필터용 선택 칩.
+/// 기간 필터 선택 칩.
 class _Chip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -166,7 +166,7 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 선택 상태에 따라 색상을 바꾼다.
+    // 선택 상태에 따라 색상을 변경.
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Container(
@@ -188,33 +188,58 @@ class _Chip extends StatelessWidget {
   }
 }
 
-/// 스켈레톤 카드 리스트.
+/// 분석 기록 카드 리스트.
 class _HistoryList extends StatelessWidget {
   const _HistoryList();
 
   @override
   Widget build(BuildContext context) {
-    // 각 카드의 제목 길이 느낌을 다르게 준다.
-    final cards = [0.6, 0.45, 0.5, 0.8, 0.55, 0.35];
-
-    // Render placeholders while real history data is not wired up.
-    return ListView.separated(
-      // 스켈레톤 카드 리스트 구성.
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-      itemBuilder: (context, index) {
-        return _HistorySkeletonCard(titleWidthFactor: cards[index]);
+    return ValueListenableBuilder<List<ActivityEntry>>(
+      valueListenable: HistoryRepository.instance.entries,
+      builder: (context, entries, _) {
+        if (entries.isEmpty) {
+          return const _EmptyHistoryState();
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          itemBuilder: (context, index) {
+            return _HistoryEntryCard(entry: entries[index]);
+          },
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemCount: entries.length,
+        );
       },
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemCount: cards.length,
     );
   }
 }
 
-/// 분석 기록 카드의 로딩 스켈레톤 UI.
-class _HistorySkeletonCard extends StatelessWidget {
-  final double titleWidthFactor;
+/// 기록이 없을 때 보여주는 빈 상태.
+class _EmptyHistoryState extends StatelessWidget {
+  const _EmptyHistoryState();
 
-  const _HistorySkeletonCard({required this.titleWidthFactor});
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Text(
+          '아직 기록이 없습니다.',
+          style: const TextStyle(
+            color: DashboardPalette.textMuted,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 기록 카드.
+class _HistoryEntryCard extends StatelessWidget {
+  final ActivityEntry entry;
+
+  const _HistoryEntryCard({required this.entry});
 
   @override
   Widget build(BuildContext context) {
@@ -232,98 +257,71 @@ class _HistorySkeletonCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 카드 상단: 아이콘 + 제목 + 시간 뼈대.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0F2F4),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FractionallySizedBox(
-                            widthFactor: titleWidthFactor,
-                            alignment: Alignment.centerLeft,
-                            child: _SkeletonBox(height: 16),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const SizedBox(
-                          width: 60,
-                          child: _SkeletonBox(height: 16),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    const SizedBox(width: 90, child: _SkeletonBox(height: 12)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // 카드 하단: 요약 텍스트 영역 뼈대.
           Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFFF8F9FA),
+              color: entry.iconBg,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFF0F2F4)),
             ),
+            child: Icon(entry.icon, color: entry.iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Row(
                   children: [
-                    SizedBox(width: 14, height: 14, child: _SkeletonBox()),
-                    SizedBox(width: 8),
-                    SizedBox(width: 24, height: 10, child: _SkeletonBox()),
+                    Expanded(
+                      child: Text(
+                        entry.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: DashboardPalette.textDark,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      entry.time,
+                      style: const TextStyle(
+                        color: DashboardPalette.textMuted,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
-                SizedBox(height: 8),
-                _SkeletonBox(height: 10),
-                SizedBox(height: 6),
-                FractionallySizedBox(
-                  widthFactor: 0.75,
-                  alignment: Alignment.centerLeft,
-                  child: _SkeletonBox(height: 10),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: entry.badgeColor,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    entry.statusLabel,
+                    style: TextStyle(
+                      color: entry.statusColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 스켈레톤 막대 기본 블록.
-class _SkeletonBox extends StatelessWidget {
-  final double height;
-
-  const _SkeletonBox({this.height = 14});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F2F4),
-        borderRadius: BorderRadius.circular(6),
       ),
     );
   }
@@ -340,7 +338,7 @@ class _ScrollTopButton extends StatelessWidget {
       shape: const CircleBorder(),
       elevation: 6,
       child: InkWell(
-        // 현재는 동작이 없으므로 추후 스크롤 컨트롤러를 연결.
+        // 현재 동작은 없음. 추후 스크롤 컨트롤러 연결.
         onTap: () {},
         customBorder: const CircleBorder(),
         child: const SizedBox(
@@ -353,7 +351,7 @@ class _ScrollTopButton extends StatelessWidget {
   }
 }
 
-/// 하단 보안 안내 풋터.
+/// 하단 보안 안내 푸터.
 class _HistoryFooter extends StatelessWidget {
   const _HistoryFooter();
 

@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'history.dart';
 import 'login_screen.dart';
+import 'user_session.dart';
+import 'result.dart';
 import 'signup_screen.dart';
 import 'welcome_screen.dart';
 import 'profile_screen.dart';
@@ -95,7 +97,6 @@ class UploadScreen extends StatefulWidget {
 
 /// 업로드/촬영 흐름과 활동 목록을 관리하는 상태 객체.
 class _UploadScreenState extends State<UploadScreen> {
-  final List<_ActivityEntry> _activities = [];
   final ImagePicker _imagePicker = ImagePicker();
 
   /// 파일 확장자에 따라 아이콘을 선택한다.
@@ -185,9 +186,14 @@ class _UploadScreenState extends State<UploadScreen> {
 
     try {
       // 로컬 API 엔드포인트로 파일을 전송한다.
-      final uri = Uri.parse('http://3.35.210.200:8000/analyze/file');
+      final uri = Uri.parse('http://3.38.43.65:8000/analyze/file');
       final request = http.MultipartRequest('POST', uri)
         ..files.add(await http.MultipartFile.fromPath('file', path));
+
+      final email = UserSession.email;
+      if (email != null && email.isNotEmpty) {
+        request.fields['email'] = email;
+      }
 
       final response = await request.send();
       final body = await response.stream.bytesToString();
@@ -209,7 +215,7 @@ class _UploadScreenState extends State<UploadScreen> {
       Navigator.of(context, rootNavigator: true).pop();
 
       // 활동 내역 카드에 표시할 데이터 구성.
-      final activity = _ActivityEntry(
+      final activity = ActivityEntry(
         title: displayName,
         time: _formatTimestamp(DateTime.now()),
         statusLabel: riskyClauses > 0 ? '$riskyClauses Risks Found' : 'Safe',
@@ -229,33 +235,20 @@ class _UploadScreenState extends State<UploadScreen> {
         showPulse: false,
       );
 
-      setState(() {
-        _activities.insert(0, activity);
-      });
+      HistoryRepository.instance.add(activity);
 
-      // 분석 결과를 모달로 보여준다.
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('분석 완료'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('위험 조항 수: $riskyClauses'),
-                const SizedBox(height: 12),
-                Text(summary?.isNotEmpty == true ? summary! : '요약이 없습니다.'),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('닫기'),
-            ),
-          ],
-        ),
+      if (!context.mounted) {
+        return;
+      }
+
+      // 분석 결과 화면으로 전환한다.
+      final viewModel = ResultViewModel.fromApi(
+        data,
+        filename: displayName,
+        fallbackSummary: summary,
+      );
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ResultScreen(viewModel: viewModel)),
       );
     } catch (error) {
       if (context.mounted) {
@@ -278,92 +271,97 @@ class _UploadScreenState extends State<UploadScreen> {
               color: Colors.white,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  // 높이를 채우기 위해 IntrinsicHeight로 감싼다.
+                  // 스크롤 영역 안에서 전체 레이아웃을 구성한다.
                   return SingleChildScrollView(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
                         minHeight: constraints.maxHeight,
                       ),
-                      child: IntrinsicHeight(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _TopAppBar(),
-                            const _GreetingSection(),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                              ),
-                              child: _HeroCard(
-                                onCameraTap: () => _handleCameraTap(context),
-                              ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _TopAppBar(),
+                          const _GreetingSection(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
                             ),
-                            const SizedBox(height: 12),
-                            // 업로드/기록 액션 카드 2열.
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: _ActionCard(
-                                      title: '파일 업로드',
-                                      subtitle: 'PDF 또는 사진',
-                                      icon: Icons.upload_file,
-                                      onTap: () => _handleUpload(context),
-                                    ),
+                            child: _HeroCard(
+                              onCameraTap: () => _handleCameraTap(context),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          // 업로드/기록 액션 카드 2열.
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _ActionCard(
+                                    title: '파일 업로드',
+                                    subtitle: 'PDF 또는 사진',
+                                    icon: Icons.upload_file,
+                                    onTap: () => _handleUpload(context),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: _ActionCard(
-                                      title: '기록',
-                                      subtitle: '과거 기록 보기',
-                                      icon: Icons.history,
-                                      onTap: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const HistoryScreen(),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16),
-                              child: _SectionHeader(
-                                title: '최근 활동',
-                                actionLabel: '모든 보기',
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
                                 ),
-                                // 활동 내역이 없으면 빈 상태를 보여준다.
-                                child: _activities.isEmpty
-                                    ? const _EmptyActivityState()
-                                    : ListView.separated(
-                                        itemCount: _activities.length,
-                                        separatorBuilder: (_, _) =>
-                                            const SizedBox(height: 10),
-                                        itemBuilder: (context, index) =>
-                                            _ActivityItem.fromEntry(
-                                              _activities[index],
-                                            ),
-                                      ),
-                              ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _ActionCard(
+                                    title: '기록',
+                                    subtitle: '과거 기록 보기',
+                                    icon: Icons.history,
+                                    onTap: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const HistoryScreen(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
-                            const _TrustFooter(),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: _SectionHeader(
+                              title: '최근 활동',
+                              actionLabel: '모든 보기',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                            ),
+                            // 활동 내역이 없으면 빈 상태를 보여준다.
+                            child: ValueListenableBuilder<List<ActivityEntry>>(
+                              valueListenable:
+                                  HistoryRepository.instance.entries,
+                              builder: (context, entries, _) {
+                                if (entries.isEmpty) {
+                                  return const _EmptyActivityState();
+                                }
+                                return ListView.separated(
+                                  shrinkWrap: true,
+                                  physics:
+                                      const NeverScrollableScrollPhysics(),
+                                  itemCount: entries.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(height: 10),
+                                  itemBuilder: (context, index) =>
+                                      _ActivityItem.fromEntry(entries[index]),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const _TrustFooter(),
+                        ],
                       ),
                     ),
                   );
@@ -698,7 +696,7 @@ class _EmptyActivityState extends StatelessWidget {
 }
 
 /// 활동 내역에 표시할 데이터 모델.
-class _ActivityEntry {
+class ActivityEntry {
   final String title;
   final String time;
   final String statusLabel;
@@ -709,7 +707,7 @@ class _ActivityEntry {
   final Color iconColor;
   final bool showPulse;
 
-  const _ActivityEntry({
+  const ActivityEntry({
     required this.title,
     required this.time,
     required this.statusLabel,
@@ -720,6 +718,20 @@ class _ActivityEntry {
     required this.iconColor,
     this.showPulse = false,
   });
+}
+
+/// 기록/활동 내역을 앱 전역에서 공유하는 저장소.
+class HistoryRepository {
+  HistoryRepository._();
+
+  static final HistoryRepository instance = HistoryRepository._();
+
+  final ValueNotifier<List<ActivityEntry>> entries =
+      ValueNotifier<List<ActivityEntry>>([]);
+
+  void add(ActivityEntry entry) {
+    entries.value = [entry, ...entries.value];
+  }
 }
 
 /// 활동 내역 항목 UI.
@@ -746,7 +758,7 @@ class _ActivityItem extends StatelessWidget {
     this.showPulse = false,
   });
 
-  factory _ActivityItem.fromEntry(_ActivityEntry entry) {
+  factory _ActivityItem.fromEntry(ActivityEntry entry) {
     return _ActivityItem(
       title: entry.title,
       time: entry.time,
