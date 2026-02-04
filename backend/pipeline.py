@@ -36,7 +36,7 @@ class ContractAnalysisPipeline:
         self.llm_summarizer = LLMSummarizer()
         self.debate_agents = DebateAgents()
     
-    def analyze(self, file_path: str) -> ContractAnalysisResult:
+    def analyze(self, file_path: str, run_debate: bool = True) -> ContractAnalysisResult:
         """
         계약서 분석 전체 파이프라인 실행
         
@@ -99,14 +99,18 @@ class ContractAnalysisPipeline:
         print("     위험 유형 분류 완료")
         print(f"     위험 유형 매핑 완료 ({time.perf_counter() - step_start:.2f}s)")
         
-        # 7단계: 갑/을 토론 생성
-        print("[7/8] 갑/을 토론 생성...")
-        step_start = time.perf_counter()
-        contract_type, debate_transcript, debate_by_clause = self._generate_debate(
-            risky_clauses,
-            raw_text,
-        )
-        print(f"     토론 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
+        contract_type = self.debate_agents.detect_contract_type(raw_text)
+        debate_transcript = None
+        debate_by_clause = None
+        if run_debate:
+            # 7단계: 갑/을 토론 생성
+            print("[7/8] 갑/을 토론 생성...")
+            step_start = time.perf_counter()
+            contract_type, debate_transcript, debate_by_clause = self._generate_debate(
+                risky_clauses,
+                raw_text,
+            )
+            print(f"     토론 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
 
         # 8단계: LLM 요약 생성
         print("[8/8] LLM 조항 요약 생성...")
@@ -133,7 +137,7 @@ class ContractAnalysisPipeline:
 
     def analyze_only(self, file_path: str) -> ContractAnalysisResult:
         """Pipeline-only analysis helper (no negotiation)."""
-        return self.analyze(file_path)
+        return self.analyze(file_path, run_debate=False)
 
     def export_result(self, result: ContractAnalysisResult, output_path: str):
         """분석 결과를 JSON으로 내보내기"""

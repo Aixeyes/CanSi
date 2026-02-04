@@ -8,7 +8,8 @@ import os
 import tempfile
 from dataclasses import asdict, is_dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
@@ -31,40 +32,13 @@ def _serialize(obj: Any) -> Any:
 def _build_pipeline() -> ContractAnalysisPipeline:
     return ContractAnalysisPipeline()
 
-def _max_risk_level(clauses: list) -> Optional[str]:
-    order = {"low": 1, "medium": 2, "high": 3, "critical": 4}
-    highest = None
-    highest_score = 0
-    for clause in clauses:
-        level = getattr(clause, "risk_level", None)
-        value = level.value if level else None
-        score = order.get(value or "", 0)
-        if score > highest_score:
-            highest_score = score
-            highest = value
-    return highest
-
-
-def _format_result_for_app(result: Any) -> dict:
-    risky_clauses = result.risky_clauses or []
-    highlights = []
-    for clause in risky_clauses[:3]:
-        title = clause.title or clause.article_num
-        reason = clause.risk_reason or ""
-        highlights.append(f"{title}: {reason}".strip(": "))
-
+def _format_result_for_app(result: Any, analysis_id: str) -> dict:
     return {
-        "contract_type": result.contract_type,
-        "summary": {
-            "risk_level": _max_risk_level(result.risky_clauses),
-            "total_clauses": len(result.clauses),
-            "risky_count": len(result.risky_clauses),
-            "highlights": highlights,
-        },
+        "analysis_id": analysis_id,
+        "raw_text": _serialize(result.raw_text),
         "risky_clauses": _serialize(result.risky_clauses),
-        "laws": _serialize(getattr(result, "laws", [])),
-        "debate": {"transcript": result.debate_transcript},
-        "report": result.llm_summary,
+        "llm_summary": _serialize(result.llm_summary),
+        "total_clauses": len(result.clauses),
     }
 
 
@@ -91,8 +65,9 @@ async def analyze_file(file: UploadFile = File(...)) -> JSONResponse:
             contents = await file.read()
             tmp.write(contents)
 
-        result = pipeline.analyze(temp_path)
-        return JSONResponse(content=_format_result_for_app(result))
+        result = pipeline.analyze(temp_path, run_debate=False)
+        analysis_id = uuid4().hex
+        return JSONResponse(content=_format_result_for_app(result, analysis_id))
     finally:
         if temp_path and os.path.exists(temp_path):
             try:

@@ -13,37 +13,42 @@ from openai_client import chat_completion
 # 임대인 측 변호사 시스템 프롬프트 (부동산 계약서 검토용)
 LANDLORD_LAWYER_SYSTEM_PROMPT = (
     "You are a lawyer representing the landlord in a real estate contract review. "  # 임대인 대리 변호사 역할
-    "Reduce clauses that excessively increase the landlord's liability or costs, "  # 임대인 책임/비용 과도 조항 축소
-    "and propose landlord-favorable revisions. "  # 임대인에게 유리한 수정안 제시
-    "Call out core risks such as deposit return conditions, defect liability scope, "  # 보증금 반환, 하자 책임 범위 등 핵심 리스크
-    "restoration obligations, late payment/termination, damage caps, and toxic clauses. "  # 원상복구, 연체/해지, 손해배상 한도, 독소조항
-    "Respond in Korean."  # 한국어로 응답
+    "Focus on reducing clauses that overly increase the landlord's liability or costs "  # 임대인 책임/비용 과도 조항 축소
+    "and propose landlord-favorable revisions.\n"  # 임대인에게 유리한 수정안 제시
+    "Output in Korean with 3 short bullet points, each with: (1) issue, (2) risk, (3) suggested edit.\n"  # 한국어 3개 불릿, 이슈/리스크/수정안 포함
+    "Prioritize: deposit return conditions, defect liability scope, restoration obligations, "  # 보증금 반환, 하자 책임 범위, 원상복구
+    "late payment/termination, damage caps, and toxic clauses.\n"  # 연체/해지, 손해배상 한도, 독소조항 우선
+    "Do not repeat the other side's view."  # 상대 주장 반복 금지
 )
 
 # 임차인 측 변호사 시스템 프롬프트 (부동산 계약서 검토용)
 TENANT_LAWYER_SYSTEM_PROMPT = (
     "You are a lawyer representing the tenant in a real estate contract review. "  # 임차인 대리 변호사 역할
-    "Reduce clauses that are unfair or risky for the tenant, "  # 임차인에게 불리/위험한 조항 축소
-    "and propose revisions needed for tenant protection. "  # 임차인 보호에 필요한 수정안 제시
-    "Call out core risks such as deposit protection, repair duties, landlord notice/termination "  # 보증금 보호, 하자 수리, 통지/해지 요건
-    "requirements, brokerage liability, dispute resolution, and toxic clauses. "  # 중개책임, 분쟁해결, 독소조항
-    "Respond in Korean."  # 한국어로 응답
+    "Focus on reducing clauses that are unfair or risky for the tenant and propose "  # 임차인에게 불리/위험한 조항 축소
+    "revisions needed for tenant protection.\n"  # 임차인 보호에 필요한 수정안 제시
+    "Output in Korean with 3 short bullet points, each with: (1) issue, (2) risk, (3) suggested edit.\n"  # 한국어 3개 불릿, 이슈/리스크/수정안 포함
+    "Prioritize: deposit protection, repair duties, landlord notice/termination requirements, "  # 보증금 보호, 수리 의무, 통지/해지 요건
+    "brokerage liability, dispute resolution, and toxic clauses.\n"  # 중개책임, 분쟁해결, 독소조항 우선
+    "Do not repeat the other side's view."  # 상대 주장 반복 금지
 )
 
 
 
 # 중재자 시스템 프롬프트 (판사 역할)
 MEDIATOR_SYSTEM_PROMPT = (
-    "You are a judge presiding over a contract clause dispute between landlord and tenant lawyers. "  # 판사 역할: 임대인/임차인 변호사 분쟁 심리
-    "Maintain a firm, judicial tone and provide a concise determination-style summary. "  # 판사 톤 유지 + 간결한 결정문 스타일 요약
-    "Your job is to (1) list interpretation points by each perspective, "  # 양측 관점별 해석 포인트 나열
-    "(2) count the number of distinct interpretation issues, "  # 쟁점(해석 이슈) 개수 집계
-    "and (3) list repeated or common interpretation points. "  # 반복/공통 해석 포인트 정리
-    "Return ONLY a JSON object with the following keys:\n"
-    "perspective_points: {\"landlord\": [..], \"tenant\": [..]},\n"
-    "issue_count: <number>,\n"
-    "common_points: [..]\n"
-    "No extra text. Respond in Korean."  # JSON만 반환, 한국어로 응답
+    "You are a judge presiding over a contract clause dispute between landlord and tenant lawyers.\n"  # 판사 역할: 임대인/임차인 변호사 분쟁 심리
+    "Maintain a firm, judicial tone and provide a concise determination-style summary.\n"  # 판사 톤 유지 + 간결한 결정문 스타일 요약
+    "Return ONLY a JSON object with the following keys:\n"  # JSON만 반환
+    "perspective_points: {\"landlord\": [..], \"tenant\": [..]},\n"  # 관점별 요지
+    "coordination_points: [..],\n"  # 조율할 부분(상충/미합의 쟁점)
+    "issue_count: <number>,\n"  # 쟁점 개수
+    "common_points: [..]\n"  # 공통 요지
+    "Rules:\n"  # 규칙
+    "- Use short bullet-style sentences in Korean.\n"  # 한국어 짧은 불릿 문장
+    "- perspective_points must reflect each side's distinct arguments.\n"  # 관점별로 구분된 주장 필요
+    "- coordination_points should list conflicting or unresolved points.\n"  # 조율이 필요한 쟁점 정리
+    "- common_points must be overlapping or repeated points.\n"  # 공통/반복되는 포인트만
+    "- No extra text outside JSON."  # JSON 외 텍스트 금지
 )
 
 class DebateAgents:
@@ -55,7 +60,7 @@ class DebateAgents:
         clauses: List[Clause],
         raw_text: Optional[str] = None,
         rounds: int = 0,
-        max_rounds: int = 3,
+        max_rounds: int = 2,
         contract_type: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         if not os.getenv("OPENAI_API_KEY"):
@@ -113,7 +118,7 @@ class DebateAgents:
         clauses: List[Clause],
         raw_text: Optional[str] = None,
         rounds: int = 0,
-        max_rounds: int = 3,
+        max_rounds: int = 2,
         contract_type: Optional[str] = None,
     ) -> List[Dict[str, object]]:
         if not clauses:

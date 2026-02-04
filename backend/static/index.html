@@ -1,0 +1,436 @@
+﻿<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CanSi 결과 확인</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f1ea;
+        --panel: #ffffff;
+        --text: #1f1a13;
+        --muted: #6b5f54;
+        --accent: #a9552a;
+        --accent-2: #274e13;
+        --border: #e6dbcf;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Noto Serif KR", "Nanum Myeongjo", "Malgun Gothic", serif;
+        background: radial-gradient(circle at 20% 10%, #fff7ee 0%, var(--bg) 48%, #efe2d4 100%);
+        color: var(--text);
+      }
+      header {
+        padding: 32px 20px 12px;
+        text-align: center;
+      }
+      header h1 { margin: 0; font-size: 28px; letter-spacing: 0.4px; }
+      header p { margin: 8px 0 0; color: var(--muted); }
+      main {
+        max-width: 980px;
+        margin: 0 auto 60px;
+        padding: 0 20px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: 0 18px 40px rgba(52, 38, 26, 0.08);
+      }
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+      .upload-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+      }
+      button {
+        padding: 10px 18px;
+        border-radius: 999px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary { background: var(--accent-2); }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      input[type="file"] {
+        padding: 8px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        width: 100%;
+      }
+      .status {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .result-block {
+        display: grid;
+        gap: 12px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #f1e2d6;
+        color: #6a3b1a;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        background: #fffdf9;
+      }
+      .card h4 { margin: 0 0 6px; font-size: 16px; }
+      .card h5 { margin: 0 0 6px; font-size: 14px; }
+      .meta { font-size: 13px; color: var(--muted); }
+      .grid-2 {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 2fr 1fr;
+      }
+      .panel-stack {
+        display: grid;
+        gap: 12px;
+      }
+      .label {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #efe3d6;
+        color: #6a3b1a;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 8px 0 0;
+      }
+      .debate-section {
+        border-top: 1px dashed var(--border);
+        margin-top: 10px;
+        padding-top: 10px;
+      }
+      details {
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #fff;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Consolas", "Courier New", monospace;
+        font-size: 13px;
+        margin: 0;
+      }
+      mark {
+        background: #ffe169;
+        padding: 0 2px;
+        border-radius: 3px;
+      }
+      @media (max-width: 700px) {
+        .upload-row { grid-template-columns: 1fr; }
+        button { width: 100%; }
+        .grid-2 { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>계약서 분석 결과 확인</h1>
+      <p>파일 업로드 후 /analyze/file 결과를 확인합니다.</p>
+    </header>
+    <main>
+      <section class="panel grid">
+        <form id="analyze-form" class="grid">
+          <div class="upload-row">
+            <input id="file-input" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" />
+            <button id="submit-btn" type="submit">분석 시작</button>
+          </div>
+          <div class="status" id="status">대기 중</div>
+        </form>
+      </section>
+
+      <section class="panel grid" style="margin-top: 18px;">
+        <div class="result-block" id="result"></div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("analyze-form");
+      const fileInput = document.getElementById("file-input");
+      const statusEl = document.getElementById("status");
+      const resultEl = document.getElementById("result");
+      const submitBtn = document.getElementById("submit-btn");
+
+      const setStatus = (message) => { statusEl.textContent = message; };
+      const escapeHtml = (text) =>
+        text.replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[char]));
+
+      const splitSentenceChunks = (sentence) => {
+        if (!sentence) return [];
+        const cleaned = sentence.replace(/[()［］\[\]{}]/g, " ");
+        return cleaned
+          .split(/[\s,;:·\-–—/]+/)
+          .map((part) => part.trim())
+          .filter((part) => part.length >= 4);
+      };
+
+      const collectHighlights = (riskyClauses) => {
+        const sentences = [];
+        const keywords = [];
+        const clauseTexts = [];
+        (riskyClauses || []).forEach((clause) => {
+          if (clause.title && !clauseTexts.includes(clause.title)) {
+            clauseTexts.push(clause.title);
+          }
+          if (clause.content && !clauseTexts.includes(clause.content)) {
+            clauseTexts.push(clause.content);
+          }
+          if (clause.article_num && !clauseTexts.includes(clause.article_num)) {
+            clauseTexts.push(clause.article_num);
+          }
+          (clause.highlight_sentences || []).forEach((sent) => {
+            if (sent && !sentences.includes(sent)) sentences.push(sent);
+          });
+          (clause.highlight_keywords || []).forEach((kw) => {
+            if (kw && !keywords.includes(kw)) keywords.push(kw);
+          });
+        });
+
+        const chunks = [];
+        [...sentences, ...clauseTexts].forEach((sent) => {
+          splitSentenceChunks(sent).forEach((chunk) => {
+            if (chunk && !chunks.includes(chunk)) chunks.push(chunk);
+          });
+        });
+
+        return { sentences, keywords, chunks, clauseTexts };
+      };
+
+      const normalizeArticleNum = (text) =>
+        String(text || "").replace(/\s+/g, "").replace(/[^0-9제조]/g, "");
+
+      const extractArticleNum = (line) => {
+        const match = String(line || "").match(/제\s*\d+\s*조/);
+        return match ? normalizeArticleNum(match[0]) : "";
+      };
+
+      const highlightByArticle = (rawText, riskyArticles) => {
+        if (!rawText) return "-";
+        const riskySet = new Set(
+          (riskyArticles || [])
+            .map(normalizeArticleNum)
+            .filter((num) => num.length >= 3)
+        );
+        const lines = rawText.split(/\r?\n/);
+        let currentArticle = "";
+        let isRisky = false;
+        return lines
+          .map((line) => {
+            const heading = extractArticleNum(line);
+            if (heading) {
+              currentArticle = heading;
+              isRisky = riskySet.has(currentArticle);
+            }
+            if (!line) return "";
+            if (!isRisky) return escapeHtml(line);
+            const dataAttr = currentArticle ? ` data-article="${currentArticle}"` : "";
+            return `<mark${dataAttr}>${escapeHtml(line)}</mark>`;
+          })
+          .join("\n");
+      };
+
+      const attachHighlightHandlers = (analysisId, articleToClauseId) => {
+        const detailBox = document.getElementById("detail-box");
+        const detailTitle = document.getElementById("detail-title");
+        const detailReason = document.getElementById("detail-reason");
+        const detailAction = document.getElementById("detail-action");
+        const debateBox = document.getElementById("debate-box");
+        const debateStatus = document.getElementById("debate-status");
+        const debateLandlord = document.getElementById("debate-landlord");
+        const debateTenant = document.getElementById("debate-tenant");
+        const debateNeutral = document.getElementById("debate-neutral");
+        const debateCommon = document.getElementById("debate-common");
+        const clauseIdToReason = window.__clauseIdToReason || {};
+        let currentClauseId = "";
+
+        document.querySelectorAll("mark[data-article]").forEach((mark) => {
+          mark.addEventListener("click", () => {
+            const article = mark.dataset.article || "";
+            const clauseId = articleToClauseId[article];
+            if (!analysisId || !clauseId) return;
+            currentClauseId = clauseId;
+            detailBox.style.display = "block";
+            detailTitle.textContent = `${article} 위험 사유`;
+            detailReason.textContent = clauseIdToReason[clauseId] || "사유를 찾을 수 없습니다.";
+            detailAction.disabled = false;
+            debateBox.style.display = "none";
+            debateStatus.textContent = "";
+            debateLandlord.textContent = "-";
+            debateTenant.textContent = "-";
+            debateNeutral.textContent = "-";
+            debateCommon.textContent = "-";
+          });
+        });
+
+        detailAction.addEventListener("click", async () => {
+          if (!analysisId || !currentClauseId) return;
+          detailAction.disabled = true;
+          debateBox.style.display = "block";
+          debateStatus.textContent = "토론 생성 중...";
+          debateLandlord.textContent = "-";
+          debateTenant.textContent = "-";
+          debateNeutral.textContent = "-";
+          debateCommon.textContent = "-";
+          try {
+            const res = await fetch(`/analysis/${analysisId}/clauses/${currentClauseId}/debate/summary`);
+            const raw = await res.text();
+            let data = null;
+            try {
+              data = JSON.parse(raw);
+            } catch (parseErr) {
+              data = null;
+            }
+            if (!res.ok) {
+              const detail = data && data.detail ? data.detail : raw || "요청 실패";
+              throw new Error(detail);
+            }
+            const summary = data && data.summary ? data.summary : null;
+            const perspective = data && data.perspective_points ? data.perspective_points : (summary && summary.perspective_points ? summary.perspective_points : null);
+            const commonPoints = data && data.common_points ? data.common_points : (summary && summary.common_points ? summary.common_points : null);
+            const coordinationPoints = data && data.coordination_points ? data.coordination_points : (summary && summary.coordination_points ? summary.coordination_points : null);
+            const landlord = perspective && perspective.landlord
+              ? perspective.landlord.join("\n")
+              : "-";
+            const tenant = perspective && perspective.tenant
+              ? perspective.tenant.join("\n")
+              : "-";
+            const neutral = coordinationPoints && coordinationPoints.length
+              ? coordinationPoints.join("\n")
+              : (summary && summary.neutral_summary ? summary.neutral_summary : "-");
+            const common = commonPoints ? commonPoints.join("\n") : "-";
+            debateStatus.textContent = "완료";
+            debateLandlord.textContent = landlord || "-";
+            debateTenant.textContent = tenant || "-";
+            debateNeutral.textContent = neutral || "-";
+            debateCommon.textContent = common || "-";
+          } catch (err) {
+            debateStatus.textContent = err.message;
+          } finally {
+            detailAction.disabled = false;
+          }
+        });
+      };
+
+      const renderResult = (payload) => {
+        resultEl.innerHTML = "";
+        const { sentences, keywords, chunks, clauseTexts } = collectHighlights(payload.risky_clauses);
+        const basis = [...clauseTexts, ...sentences, ...chunks, ...keywords].filter((item, idx, arr) => (
+          item && arr.indexOf(item) === idx
+        ));
+        const riskyArticles = (payload.risky_clauses || []).map((clause) => clause.article_num);
+        const articleToClauseId = payload.article_to_clause_id || {};
+        window.__clauseIdToReason = payload.clause_id_to_reason || {};
+        const label = clauseTexts.length
+          ? "강조 기준: 위험 조항"
+          : (sentences.length ? "강조 기준: 위험 문장" : (keywords.length ? "강조 기준: 위험 키워드" : "강조 기준 없음"));
+
+        resultEl.insertAdjacentHTML(
+          "beforeend",
+          `
+          <div class="grid-2">
+            <div class="card">
+              <h4>OCR 원문</h4>
+              <div class="meta">${label}</div>
+              <pre>${highlightByArticle(payload.raw_text || "", riskyArticles)}</pre>
+            </div>
+            <div class="panel-stack">
+              <div id="detail-box" class="card" style="display:none;">
+                <h4 id="detail-title">위험 사유</h4>
+                <pre id="detail-reason"></pre>
+                <div class="pill-row">
+                  <button id="detail-action" class="secondary" type="button">자세히 보기</button>
+                </div>
+              </div>
+              <div id="debate-box" class="card" style="display:none;">
+                <h4>토론 결과</h4>
+                <div class="meta" id="debate-status"></div>
+                <div class="debate-section">
+                  <div class="label">임대인 관점</div>
+                  <pre id="debate-landlord"></pre>
+                </div>
+                <div class="debate-section">
+                  <div class="label">임차인 관점</div>
+                  <pre id="debate-tenant"></pre>
+                </div>
+                <div class="debate-section">
+                  <div class="label">조율할 부분</div>
+                  <pre id="debate-neutral"></pre>
+                </div>
+                <div class="debate-section">
+                  <div class="label">공통 요지</div>
+                  <pre id="debate-common"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+          `
+        );
+
+        attachHighlightHandlers(payload.analysis_id, articleToClauseId);
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = fileInput.files[0];
+        if (!file) {
+          setStatus("파일을 선택해주세요.");
+          return;
+        }
+        const formData = new FormData();
+        formData.append("file", file);
+        submitBtn.disabled = true;
+        setStatus("분석 중...");
+        resultEl.innerHTML = "";
+        try {
+          const response = await fetch("/analyze/file", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || "분석 실패");
+          }
+          renderResult(data);
+          setStatus("완료");
+        } catch (err) {
+          setStatus(err.message);
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
