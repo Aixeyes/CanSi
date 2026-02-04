@@ -108,37 +108,6 @@ class DebateAgents:
                     break
         return transcript
 
-    def run_by_clause(
-        self,
-        clauses: List[Clause],
-        raw_text: Optional[str] = None,
-        rounds: int = 0,
-        max_rounds: int = 3,
-        contract_type: Optional[str] = None,
-    ) -> List[Dict[str, object]]:
-        if not clauses:
-            return []
-        if not contract_type:
-            contract_type = self._detect_contract_type(raw_text or "")
-        results: List[Dict[str, object]] = []
-        for clause in clauses:
-            transcript = self.run(
-                [clause],
-                raw_text=raw_text,
-                rounds=rounds,
-                max_rounds=max_rounds,
-                contract_type=contract_type,
-            )
-            results.append(
-                {
-                    "clause_id": clause.id,
-                    "article_num": clause.article_num,
-                    "title": clause.title,
-                    "transcript": transcript,
-                }
-            )
-        return results
-
     def _reply(
         self,
         role: str,

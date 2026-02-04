@@ -5,7 +5,7 @@
 import os
 import json
 import time
-from typing import List
+from typing import List, Optional
 from dataclasses import asdict
 
 from ocr import UpstageOCR, get_extracted_text
@@ -61,139 +61,40 @@ class ContractAnalysisPipeline:
         # 1단계: OCR
         print(f"[1/8] OCR 진행 중.. ({filename})")
         step_start = time.perf_counter()
-        raw_text = self._run_ocr(file_path)
+        ocr_result = self.ocr.extract_text_from_file(file_path)
+        raw_text = get_extracted_text(ocr_result)
         print(f"     OCR 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 2단계: 텍스트 정제 및 조항 분리
         print("[2/8] 텍스트 정제 및 조항 분리...")
         step_start = time.perf_counter()
-        clauses = self._prepare_clauses(raw_text)
+        clean_text = self.text_processor.clean_text(raw_text)
+        clauses = self.text_processor.split_clauses_with_fallback(clean_text)
         print(f"     총 {len(clauses)}개 조항 추출")
         print(f"     텍스트 정제/분리 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 3단계: 위험 조항 필터링
         print("[3/8] 위험 조항 필터링...")
         step_start = time.perf_counter()
-        risky_clauses = self._filter_risky_clauses(clauses)
+        risky_clauses = self.risk_assessor.filter_risky_clauses(clauses)
         print(f"     위험 조항 {len(risky_clauses)}개 발견")
         print(f"     위험 조항 필터링 완료 ({time.perf_counter() - step_start:.2f}s)")
         
         # 4단계: 판례 데이터 수집
         print("[4/8] 공공 판례 API 호출...")
         step_start = time.perf_counter()
-        all_precedents, all_laws = self._collect_references(risky_clauses)
-        print(f"     precedents {len(all_precedents)}, laws {len(all_laws)} collected")
-        print(f"     판례/법령 수집 완료 ({time.perf_counter() - step_start:.2f}s)")
-        
-        # 5단계: 임베딩 생성 및 유사도 검색
-        print("[5/8] 임베딩 생성 및 유사도 검색..")
-        step_start = time.perf_counter()
-        self._attach_similarities(risky_clauses, all_precedents, all_laws)
-        print("     유사도 검색 완료")
-        print(f"     임베딩/유사도 완료 ({time.perf_counter() - step_start:.2f}s)")
-        
-        # 6단계: 위험 유형 매핑
-        print("[6/8] 위험 유형 매핑...")
-        step_start = time.perf_counter()
-        self._map_risk_types(risky_clauses, all_precedents)
-        print("     위험 유형 분류 완료")
-        print(f"     위험 유형 매핑 완료 ({time.perf_counter() - step_start:.2f}s)")
-        
-        # 7단계: 갑/을 토론 생성
-        print("[7/8] 갑/을 토론 생성...")
-        step_start = time.perf_counter()
-        contract_type, debate_transcript, debate_by_clause = self._generate_debate(
-            risky_clauses,
-            raw_text,
-        )
-        print(f"     토론 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
-
-        # 8단계: LLM 요약 생성
-        print("[8/8] LLM 조항 요약 생성...")
-        step_start = time.perf_counter()
-        llm_summary = self._generate_summary(risky_clauses)
-        print(f"     요약 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
-        
-        # 결과 반환
-        result = ContractAnalysisResult(
-            filename=filename,
-            raw_text=raw_text,
-            clauses=clauses,
-            risky_clauses=risky_clauses,
-            precedents=all_precedents,
-            laws=all_laws,
-            llm_summary=llm_summary,
-            debate_transcript=debate_transcript,
-            debate_by_clause=debate_by_clause,
-            contract_type=contract_type
-        )
-        
-        print("\n분석 완료!")
-        return result
-
-    def analyze_only(self, file_path: str) -> ContractAnalysisResult:
-        """Pipeline-only analysis helper (no negotiation)."""
-        return self.analyze(file_path)
-
-    def export_result(self, result: ContractAnalysisResult, output_path: str):
-        """분석 결과를 JSON으로 내보내기"""
-        output_data = {
-            "filename": result.filename,
-            "total_clauses": len(result.clauses),
-            "risky_clauses_count": len(result.risky_clauses),
-            "clauses": [asdict(c) for c in result.clauses],
-            "risky_clauses": [asdict(c) for c in result.risky_clauses],
-            "precedents": [asdict(p) for p in result.precedents],
-            "laws": [asdict(l) for l in result.laws],
-            "summary": result.llm_summary,
-            "debate_transcript": result.debate_transcript,
-            "debate_by_clause": result.debate_by_clause,
-            "contract_type": result.contract_type
-        }
-        
-        # dataclass 직렬화 문제 해결
-        def serialize(obj):
-            if hasattr(obj, 'value'):  # Enum
-                return obj.value
-            return str(obj)
-        
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(output_data, f, ensure_ascii=False, indent=2, default=serialize)
-        
-        print(f"결과 저장: {output_path}")
-
-    @staticmethod
-    def _format_law_text(law) -> str:
-        parts = [law.title, law.summary, law.content]
-        return "\n".join([str(p).strip() for p in parts if p and str(p).strip()])
-
-    @staticmethod
-    def _format_clause_text(clauses: List[Clause]) -> str:
-        if not clauses:
-            return ""
-        parts = []
-        for clause in clauses:
-            title = clause.title or clause.article_num
-            parts.append(f"{clause.article_num} {title}\n{clause.content}")
-        return "\n\n".join(parts)
-
-    def _run_ocr(self, file_path: str) -> str:
-        ocr_result = self.ocr.extract_text_from_file(file_path)
-        return get_extracted_text(ocr_result)
-
-    def _prepare_clauses(self, raw_text: str) -> List[Clause]:
-        clean_text = self.text_processor.clean_text(raw_text)
-        return self.text_processor.split_clauses_with_fallback(clean_text)
-
-    def _filter_risky_clauses(self, clauses: List[Clause]) -> List[Clause]:
-        return self.risk_assessor.filter_risky_clauses(clauses)
-
-    def _collect_references(self, risky_clauses: List[Clause]):
         all_precedents = []
         all_laws = []
         min_precedent_results = int(os.getenv("PRECEDENT_MIN_RESULTS") or "3")
         min_law_results = int(os.getenv("LAW_MIN_RESULTS") or "3")
-        domain_keywords = self._get_domain_keywords()
+        domain_keywords = [
+            kw.strip()
+            for kw in (
+                os.getenv("LAW_DOMAIN_KEYWORDS")
+                or "부동산,임대차,임대,임차,주택,전세,월세,보증금"
+            ).split(",")
+            if kw.strip()
+        ]
         for clause in risky_clauses:
             category = self.risk_mapper.map_risk_category(clause, all_precedents)
             keywords = domain_keywords + [clause.title]
@@ -229,25 +130,12 @@ class ContractAnalysisPipeline:
                         seen.add(key)
             all_laws.extend(laws)
         all_laws = self.law_fetcher._dedupe_laws(all_laws)
-        return all_precedents, all_laws
-
-    @staticmethod
-    def _get_domain_keywords() -> List[str]:
-        return [
-            kw.strip()
-            for kw in (
-                os.getenv("LAW_DOMAIN_KEYWORDS")
-                or "부동산,임대차,임대,임차,주택,전세,월세,보증금"
-            ).split(",")
-            if kw.strip()
-        ]
-
-    def _attach_similarities(
-        self,
-        risky_clauses: List[Clause],
-        all_precedents: list,
-        all_laws: list,
-    ) -> None:
+        print(f"     precedents {len(all_precedents)}, laws {len(all_laws)} collected")
+        print(f"     판례/법령 수집 완료 ({time.perf_counter() - step_start:.2f}s)")
+        
+        # 5단계: 임베딩 생성 및 유사도 검색
+        print("[5/8] 임베딩 생성 및 유사도 검색..")
+        step_start = time.perf_counter()
         self.embedding_manager.attach_embeddings(all_laws, self._format_law_text)
         for clause in risky_clauses:
             clause_text = self._format_clause_text([clause]) or (
@@ -261,21 +149,22 @@ class ContractAnalysisPipeline:
                 clause_text, all_laws
             )
             clause.related_laws = similar_laws
-
-    def _map_risk_types(self, risky_clauses: List[Clause], all_precedents: list) -> None:
+        print("     유사도 검색 완료")
+        print(f"     임베딩/유사도 완료 ({time.perf_counter() - step_start:.2f}s)")
+        
+        # 6단계: 위험 유형 매핑
+        print("[6/8] 위험 유형 매핑...")
+        step_start = time.perf_counter()
+        risk_mappings = {}
         for clause in risky_clauses:
             category = self.risk_mapper.map_risk_category(clause, all_precedents)
-            keywords = self.risk_mapper.get_keywords_for_category(category)
-            clause.highlight_keywords = [kw for kw in keywords if kw]
-            clause.highlight_sentences = self.risk_mapper.find_highlight_sentences(
-                clause.content, clause.highlight_keywords
-            )
-
-    def _generate_debate(
-        self,
-        risky_clauses: List[Clause],
-        raw_text: str,
-    ):
+            risk_mappings[clause.id] = category
+        print("     위험 유형 분류 완료")
+        print(f"     위험 유형 매핑 완료 ({time.perf_counter() - step_start:.2f}s)")
+        
+        # 7단계: 갑/을 토론 생성
+        print("[7/8] 갑/을 토론 생성...")
+        step_start = time.perf_counter()
         contract_type = self.debate_agents.detect_contract_type(raw_text)
         debate_transcript = self.debate_agents.run(
             risky_clauses,
@@ -286,20 +175,76 @@ class ContractAnalysisPipeline:
         for turn in debate_transcript:
             if turn.get("speaker") in ("mediator", "중재자"):
                 turn["speaker"] = "판사"
+        print(f"     토론 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
 
-        debate_by_clause = None
-        if os.getenv("DEBATE_BY_CLAUSE", "").lower() in ("1", "true", "yes", "y"):
-            debate_by_clause = self.debate_agents.run_by_clause(
-                risky_clauses,
-                raw_text=raw_text,
-                contract_type=contract_type,
-            )
-        return contract_type, debate_transcript, debate_by_clause
-
-    def _generate_summary(self, risky_clauses: List[Clause]) -> str:
-        return self.llm_summarizer.generate_comprehensive_report(
+        # 8단계: LLM 요약 생성
+        print("[8/8] LLM 조항 요약 생성...")
+        step_start = time.perf_counter()
+        llm_summary = self.llm_summarizer.generate_comprehensive_report(
             self._format_clause_text(risky_clauses)
         )
+        print(f"     요약 생성 완료 ({time.perf_counter() - step_start:.2f}s)")
+        
+        # 결과 반환
+        result = ContractAnalysisResult(
+            filename=filename,
+            raw_text=raw_text,
+            clauses=clauses,
+            risky_clauses=risky_clauses,
+            precedents=all_precedents,
+            laws=all_laws,
+            llm_summary=llm_summary,
+            debate_transcript=debate_transcript,
+            contract_type=contract_type
+        )
+        
+        print("\n분석 완료!")
+        return result
+
+    def analyze_only(self, file_path: str) -> ContractAnalysisResult:
+        """Pipeline-only analysis helper (no negotiation)."""
+        return self.analyze(file_path)
+
+    def export_result(self, result: ContractAnalysisResult, output_path: str):
+        """분석 결과를 JSON으로 내보내기"""
+        output_data = {
+            "filename": result.filename,
+            "total_clauses": len(result.clauses),
+            "risky_clauses_count": len(result.risky_clauses),
+            "clauses": [asdict(c) for c in result.clauses],
+            "risky_clauses": [asdict(c) for c in result.risky_clauses],
+            "precedents": [asdict(p) for p in result.precedents],
+            "laws": [asdict(l) for l in result.laws],
+            "summary": result.llm_summary,
+            "debate_transcript": result.debate_transcript,
+            "contract_type": result.contract_type
+        }
+        
+        # dataclass 직렬화 문제 해결
+        def serialize(obj):
+            if hasattr(obj, 'value'):  # Enum
+                return obj.value
+            return str(obj)
+        
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2, default=serialize)
+        
+        print(f"결과 저장: {output_path}")
+
+    @staticmethod
+    def _format_law_text(law) -> str:
+        parts = [law.title, law.summary, law.content]
+        return "\n".join([str(p).strip() for p in parts if p and str(p).strip()])
+
+    @staticmethod
+    def _format_clause_text(clauses: List[Clause]) -> str:
+        if not clauses:
+            return ""
+        parts = []
+        for clause in clauses:
+            title = clause.title or clause.article_num
+            parts.append(f"{clause.article_num} {title}\n{clause.content}")
+        return "\n\n".join(parts)
 
 
 # ==================== 사용 예시 ====================

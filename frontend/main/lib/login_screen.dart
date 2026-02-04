@@ -1,5 +1,7 @@
 ﻿import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'user_session.dart';
 
@@ -45,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _handleLogin() {
+  Future<void> _handleLogin() async {
     final trimmedEmail = _email.text.trim();
     final trimmedPassword = _password.text.trim();
 
@@ -67,10 +69,43 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Cache the email locally for downstream profile lookup.
-    UserSession.email = trimmedEmail;
-    // TODO: Replace with real auth API call.
-    widget.onLogin();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final uri = Uri.parse('http://3.38.43.65:8000/login');
+      final response = await http.post(
+        uri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': trimmedEmail,
+          'password': trimmedPassword,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Login failed: ${response.statusCode} ${response.body}',
+        );
+      }
+
+      UserSession.email = trimmedEmail;
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context, rootNavigator: true).pop();
+      widget.onLogin();
+    } catch (error) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('로그인 실패: $error')));
+      }
+    }
   }
 
   /// 소셜 로그인 URL을 외부 브라우저로 연다.

@@ -3,7 +3,6 @@
 """
 
 from typing import List
-import re
 from models import Clause, Precedent
 
 
@@ -49,30 +48,3 @@ class RiskMapper:
     def get_keywords_for_category(category: str) -> List[str]:
         """카테고리별 키워드 반환"""
         return RiskMapper.RISK_CATEGORIES.get(category, [])
-
-    @staticmethod
-    def find_highlight_sentences(text: str, keywords: List[str]) -> List[str]:
-        """
-        키워드가 포함된 문장을 찾아 반환
-
-        Args:
-            text: 대상 텍스트
-            keywords: 탐색 키워드 리스트
-        """
-        if not text or not keywords:
-            return []
-        sentences: List[str] = []
-        chunks = re.split(r'(?<=[\.\!\?]|[。！？])\s+', text)
-        for chunk in chunks:
-            parts = [p.strip() for p in re.split(r'[\r\n]+', chunk) if p.strip()]
-            for part in parts:
-                if any(kw in part for kw in keywords):
-                    sentences.append(part)
-        # 중복 제거 (순서 유지)
-        seen = set()
-        deduped: List[str] = []
-        for sent in sentences:
-            if sent not in seen:
-                deduped.append(sent)
-                seen.add(sent)
-        return deduped

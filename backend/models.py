@@ -26,8 +26,6 @@ class Clause:
     risk_reason: Optional[str] = None
     related_precedents: List = field(default_factory=list)
     related_laws: List = field(default_factory=list)
-    highlight_sentences: List[str] = field(default_factory=list)
-    highlight_keywords: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -65,7 +63,7 @@ class ContractAnalysisResult:
     risky_clauses: List[Clause]
     precedents: List[Precedent]
     laws: List[Law]
+    raw_html: Optional[str] = None      # Document Parse HTML (table-preserving)
     llm_summary: Optional[str] = None
     debate_transcript: Optional[List[dict]] = None
-    debate_by_clause: Optional[List[dict]] = None
     contract_type: Optional[str] = None
