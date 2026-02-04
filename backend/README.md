@@ -168,3 +168,18 @@ backend/
   models.py
 ```
 
+---
+
+## Debate settings
+- `DEBATE_MAX_ROUNDS`: maximum debate rounds (default now 2)
+
+### Windows (PowerShell)
+```powershell
+$env:DEBATE_MAX_ROUNDS = "2"
+```
+
+### Windows (cmd)
+```cmd
+set DEBATE_MAX_ROUNDS=2
+```
+
