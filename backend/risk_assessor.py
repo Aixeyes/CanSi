@@ -1,5 +1,6 @@
 ﻿import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, Tuple
 
 
@@ -48,12 +49,27 @@ class RiskAssessor:
 
     def filter_risky_clauses(self, clauses: list[Clause]) -> list[Clause]:
         risky: list[Clause] = []
-        for clause in clauses:
-            risk, rationale = self.assess_clause(clause)
-            clause.risk_level = risk
-            clause.risk_reason = rationale
-            if risk in (RiskType.MEDIUM, RiskType.HIGH, RiskType.CRITICAL):
-                risky.append(clause)
+        if not clauses:
+            return risky
+        workers = int(os.getenv("RISK_ASSESSOR_WORKERS", "4"))
+        if workers <= 1:
+            for clause in clauses:
+                risk, rationale = self.assess_clause(clause)
+                clause.risk_level = risk
+                clause.risk_reason = rationale
+                if risk in (RiskType.MEDIUM, RiskType.HIGH, RiskType.CRITICAL):
+                    risky.append(clause)
+            return risky
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_map = {executor.submit(self.assess_clause, clause): clause for clause in clauses}
+            for future in as_completed(future_map):
+                clause = future_map[future]
+                risk, rationale = future.result()
+                clause.risk_level = risk
+                clause.risk_reason = rationale
+                if risk in (RiskType.MEDIUM, RiskType.HIGH, RiskType.CRITICAL):
+                    risky.append(clause)
         return risky
 
     def _map_risk(self, value: str) -> Optional[RiskType]:

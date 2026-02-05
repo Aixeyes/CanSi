@@ -65,6 +65,7 @@ class ContractAnalysisResult:
     risky_clauses: List[Clause]
     precedents: List[Precedent]
     laws: List[Law]
+    raw_html: Optional[str] = None      # Document Parse HTML (table-preserving)
     llm_summary: Optional[str] = None
     debate_transcript: Optional[List[dict]] = None
     debate_by_clause: Optional[List[dict]] = None
