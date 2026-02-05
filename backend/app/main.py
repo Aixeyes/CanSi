@@ -46,7 +46,7 @@ def _ensure_analysis_columns():
             FROM information_schema.columns
             WHERE table_schema=%s
               AND table_name='analysis_history'
-              AND column_name IN ('clauses_json', 'risky_clauses_json')
+              AND column_name IN ('clauses_json', 'risky_clauses_json', 'raw_text')
             """,
             (db_name,),
         )
@@ -55,7 +55,13 @@ def _ensure_analysis_columns():
             cur.execute("ALTER TABLE analysis_history ADD COLUMN clauses_json JSON NULL")
         if "risky_clauses_json" not in existing:
             cur.execute("ALTER TABLE analysis_history ADD COLUMN risky_clauses_json JSON NULL")
-        if "clauses_json" not in existing or "risky_clauses_json" not in existing:
+        if "raw_text" not in existing:
+            cur.execute("ALTER TABLE analysis_history ADD COLUMN raw_text MEDIUMTEXT NULL")
+        if (
+            "clauses_json" not in existing
+            or "risky_clauses_json" not in existing
+            or "raw_text" not in existing
+        ):
             conn.commit()
     finally:
         try:
@@ -103,10 +109,27 @@ def _max_risk_level(clauses: list) -> Optional[str]:
             highest_score = score
             highest = value
     return highest
+
 def _format_result_for_app(result: Any, analysis_id: str) -> dict:
+    risky_clauses = result.risky_clauses or []
+    article_to_clause_id = {}
+    clause_id_to_reason = {}
+    for clause in risky_clauses:
+        article_num = getattr(clause, "article_num", None)
+        clause_id = getattr(clause, "id", None)
+        if article_num and clause_id and article_num not in article_to_clause_id:
+            article_to_clause_id[article_num] = clause_id
+        if clause_id and clause_id not in clause_id_to_reason:
+            raw_reason = _serialize(getattr(clause, "risk_reason", None))
+            clause_id_to_reason[clause_id] = _normalize_reason(raw_reason)
+
     return {
         "analysis_id": analysis_id,
-        "risky_clauses": _serialize(result.risky_clauses),
+        "raw_text": _serialize(result.raw_text),
+        "risky_clauses": _serialize(risky_clauses),
+        "risky_article_nums": list(article_to_clause_id.keys()),
+        "article_to_clause_id": article_to_clause_id,
+        "clause_id_to_reason": clause_id_to_reason,
     }
 
 def _prune_store():
@@ -280,7 +303,8 @@ def _format_transcript_text(transcript: list[dict]) -> str:
 @app.post("/analyze/file")
 async def analyze_file(
     file: UploadFile = File(...),
-    user_id: int = Form(...),
+    user_id: Optional[int] = Form(None),
+    email: Optional[EmailStr] = Form(None),
     original_name: Optional[str] = Form(None),
 ) -> UTF8JSONResponse:
     if not file.filename:
@@ -291,7 +315,6 @@ async def analyze_file(
     conn = None
     cur = None
     try:
-        _ensure_analysis_columns()
         contents = await file.read()
         size_bytes = len(contents)
         content_type = file.content_type or "application/octet-stream"
@@ -302,6 +325,22 @@ async def analyze_file(
             out.write(contents)
 
         result = pipeline.analyze(saved_path)
+        raw_text = (result.raw_text or "").strip()
+        if raw_text == "api필요":
+            raise HTTPException(
+                status_code=503,
+                detail="OCR failed: UPSTAGE_API_KEY is missing.",
+            )
+        if not raw_text:
+            raise HTTPException(
+                status_code=422,
+                detail="OCR produced empty text. Check the input file and OCR service.",
+            )
+        if not result.clauses and not os.getenv("OPENAI_API_KEY"):
+            raise HTTPException(
+                status_code=503,
+                detail="Clause splitting fallback requires OPENAI_API_KEY.",
+            )
         analysis_id = _store_result(result)
 
         risky_count = len(result.risky_clauses or [])
@@ -310,51 +349,71 @@ async def analyze_file(
         clauses_json = json.dumps(_serialize(result.clauses), ensure_ascii=False)
         risky_clauses_json = json.dumps(_serialize(result.risky_clauses), ensure_ascii=False)
 
-        conn = _get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE id=%s", (user_id,))
-        if not cur.fetchone():
-            raise HTTPException(status_code=400, detail="User not found")
-        cur.execute(
-            """
-            INSERT INTO user_files
-              (user_id, original_name, content_type, size_bytes, storage_path)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (
-                user_id,
-                display_name,
-                content_type,
-                size_bytes,
-                saved_path,
-            ),
-        )
-        cur.execute(
-            """
-            INSERT INTO analysis_history
-              (user_id, original_name, risky_count, risk_level, summary, clauses_json, risky_clauses_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                user_id,
-                display_name,
-                risky_count,
-                risk_level,
-                summary,
-                clauses_json,
-                risky_clauses_json,
-            ),
-        )
-        conn.commit()
+        resolved_user_id = user_id
+        if resolved_user_id is None and email:
+            conn = _get_db_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE email=%s", (str(email),))
+            row = cur.fetchone()
+            if row:
+                resolved_user_id = row[0]
+            cur.close()
+            conn.close()
+            cur = None
+            conn = None
+
+        if resolved_user_id is not None:
+            _ensure_analysis_columns()
+            conn = _get_db_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE id=%s", (resolved_user_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=400, detail="User not found")
+            cur.execute(
+                """
+                INSERT INTO user_files
+                  (user_id, original_name, content_type, size_bytes, storage_path)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (
+                    resolved_user_id,
+                    display_name,
+                    content_type,
+                    size_bytes,
+                    saved_path,
+                ),
+            )
+            cur.execute(
+                """
+                INSERT INTO analysis_history
+                  (user_id, original_name, risky_count, risk_level, summary, clauses_json, risky_clauses_json, raw_text)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    resolved_user_id,
+                    display_name,
+                    risky_count,
+                    risk_level,
+                    summary,
+                    clauses_json,
+                    risky_clauses_json,
+                    result.raw_text,
+                ),
+            )
+            conn.commit()
 
         return UTF8JSONResponse(
             content={
                 "analysis_id": analysis_id,
-                "user_id": user_id,
+                "analysisId": analysis_id,
+                "user_id": resolved_user_id,
+                "email": str(email) if email else None,
                 "original_name": display_name,
+                "raw_text": result.raw_text,
                 "risky_count": risky_count,
                 "risk_level": risk_level,
                 "summary": summary,
+                "llm_summary": summary,
                 "clauses": _serialize(result.clauses),
                 "risky_clauses": _serialize(result.risky_clauses),
             }
@@ -407,15 +466,29 @@ def get_analysis_detail(analysis_id: int) -> UTF8JSONResponse:
     try:
         conn = _get_db_conn()
         cur = conn.cursor(dictionary=True)
-        cur.execute(
-            """
-            SELECT id, user_id, original_name, risky_count, risk_level, summary, created_at,
-                   clauses_json, risky_clauses_json
-            FROM analysis_history
-            WHERE id=%s
-            """,
-            (analysis_id,),
-        )
+        try:
+            cur.execute(
+                """
+                SELECT id, user_id, original_name, risky_count, risk_level, summary, created_at,
+                       clauses_json, risky_clauses_json, raw_text
+                FROM analysis_history
+                WHERE id=%s
+                """,
+                (analysis_id,),
+            )
+        except mysql.connector.Error as exc:
+            # Backward-compatible: column might not exist yet.
+            if getattr(exc, "errno", None) != 1054:
+                raise
+            cur.execute(
+                """
+                SELECT id, user_id, original_name, risky_count, risk_level, summary, created_at,
+                       clauses_json, risky_clauses_json
+                FROM analysis_history
+                WHERE id=%s
+                """,
+                (analysis_id,),
+            )
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Analysis not found")
@@ -429,6 +502,11 @@ def get_analysis_detail(analysis_id: int) -> UTF8JSONResponse:
             row["risky_clauses"] = json.loads(risky_clauses_raw) if risky_clauses_raw else []
         except (TypeError, json.JSONDecodeError):
             row["risky_clauses"] = []
+        raw_text = row.get("raw_text")
+        if isinstance(raw_text, str):
+            row["raw_text"] = raw_text
+        else:
+            row["raw_text"] = None
         return UTF8JSONResponse(content=jsonable_encoder(row))
     except HTTPException:
         raise
