@@ -88,12 +88,15 @@ class _SignupScreenState extends State<SignupScreen> {
           'password': password,
         }),
       );
+      final body = utf8.decode(response.bodyBytes);
       debugPrint(
-        '[signup] status=${response.statusCode} body=${response.body}',
+        '[signup] status=${response.statusCode} body=$body',
       );
 
       if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception('Signup failed: ${response.statusCode}');
+        final detail = _extractErrorDetail(body);
+        final message = detail ?? '회원가입 실패: ${response.statusCode}';
+        throw Exception(message);
       }
 
       UserSession.email = email;
@@ -121,6 +124,25 @@ class _SignupScreenState extends State<SignupScreen> {
       _isEmailValid = emailPattern.hasMatch(value);
     });
   }
+
+  String? _extractErrorDetail(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        final detail = decoded['detail'];
+        if (detail is String && detail.trim().isNotEmpty) {
+          if (detail.contains('Email already exists')) {
+            return '이미 가입된 이메일입니다.';
+          }
+          return detail.trim();
+        }
+      }
+    } catch (_) {
+      // Ignore JSON parse errors and fallback to a generic message.
+    }
+    return null;
+  }
+
 
   /// 비밀번호 강도 점수를 계산하고 UI 상태를 갱신한다.
   void _updateStrength(String value) {

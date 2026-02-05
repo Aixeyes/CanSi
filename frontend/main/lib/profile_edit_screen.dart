@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'main.dart';
+
+import 'shared/dashboard_palette.dart';
 import 'user_session.dart';
 
 /// 프로필 수정 화면.
@@ -40,15 +41,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     try {
       final uri = Uri.parse(
-        'http://3.35.210.200:8000/profile?email=${Uri.encodeQueryComponent(email)}',
+        'http://3.38.43.65:8000/profile?email=${Uri.encodeQueryComponent(email)}',
       );
       final response = await http.get(uri);
+      final body = utf8.decode(response.bodyBytes);
       if (response.statusCode != 200) {
         throw Exception(
-          'Profile API error: ${response.statusCode} ${response.body}',
+          'Profile API error: ${response.statusCode} ${body.trim()}',
         );
       }
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(body) as Map<String, dynamic>;
       final profile = _unwrapProfileMap(data);
       final name =
           _pickString(profile, const [
@@ -136,6 +138,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     return null;
   }
 
+
   Future<void> _saveProfile() async {
     if (_saving) {
       return;
@@ -177,14 +180,15 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
+      final body = utf8.decode(response.bodyBytes);
 
       if (response.statusCode != 200) {
         throw Exception(
-          'Profile update error: ${response.statusCode} ${response.body}',
+          'Profile update error: ${response.statusCode} ${body.trim()}',
         );
       }
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(body) as Map<String, dynamic>;
       final profile = _unwrapProfileMap(data);
       final updatedName =
           _pickString(profile, const [

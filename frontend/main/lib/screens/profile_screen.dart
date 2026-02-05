@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'main.dart';
-import 'login_screen.dart';
-import 'signup_screen.dart';
-import 'profile_edit_screen.dart';
-import 'welcome_screen.dart';
-import 'user_session.dart';
+
+import '../login_screen.dart';
+import '../profile_edit_screen.dart';
+import '../shared/dashboard_palette.dart';
+import '../signup_screen.dart';
+import '../user_session.dart';
+import '../welcome_screen.dart';
+import 'upload_screen.dart';
 
 class _ProfileData {
   final String name;
@@ -47,14 +49,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'http://3.38.43.65:8000/profile?email=${Uri.encodeQueryComponent(email)}',
     );
     final response = await http.get(uri);
+    final body = utf8.decode(response.bodyBytes);
     if (response.statusCode != 200) {
-      final body = response.body.trim();
-      final snippet = body.length > 300 ? body.substring(0, 300) : body;
+      final snippet = body.trim().length > 300
+          ? body.trim().substring(0, 300)
+          : body.trim();
       throw Exception(
         'Profile API error: ${response.statusCode} ${snippet.isEmpty ? '(empty body)' : snippet}',
       );
     }
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = jsonDecode(body) as Map<String, dynamic>;
     final profile = _unwrapProfileMap(data);
     final name =
         _pickString(profile, const ['name', 'username', 'user_name', 'full_name', 'fullName', 'nickname', 'display_name', 'displayName']) ??
@@ -95,6 +99,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     return null;
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -170,6 +175,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               onLogout: () {
                                 // Clear session cache and return to welcome flow.
                                 UserSession.email = null;
+                                UserSession.userId = null;
                                 Navigator.of(context).pushAndRemoveUntil(
                                   MaterialPageRoute(
                                     builder: (_) => WelcomeScreen(

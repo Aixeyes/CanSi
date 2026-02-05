@@ -1,7 +1,13 @@
-﻿import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+﻿import 'dart:convert';
 
-import 'main.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import 'detail.dart';
+import 'screens/upload_screen.dart';
+
+final Map<String, Map<String, dynamic>> _detailCache = {};
 
 // 결과 화면에서 사용하는 색상 팔레트.
 class ResultPalette {
@@ -33,6 +39,8 @@ class _HighlightRange {
 
 // API 조항 데이터를 화면 모델로 변환한 구조.
 class ContractClause {
+  final int? id;
+  final String? lookupKey;
   final String title;
   final String body;
   final String? highlight;
@@ -40,6 +48,8 @@ class ContractClause {
   final RiskLevel? risk;
 
   const ContractClause({
+    this.id,
+    this.lookupKey,
     required this.title,
     required this.body,
     this.highlight,
@@ -69,12 +79,16 @@ class ResultData {
   final int riskyClauseCount;
   final List<ContractClause> clauses;
   final List<ResultSummarySpan> summarySpans;
+  final String? rawText;
+  final List<String> rawHighlights;
 
   const ResultData({
     required this.foundClauseCount,
     required this.riskyClauseCount,
     required this.clauses,
     required this.summarySpans,
+    this.rawText,
+    this.rawHighlights = const [],
   });
 }
 
@@ -83,12 +97,15 @@ class ResultViewModel extends ChangeNotifier {
   ResultData data;
   bool showSummary;
   final String? filename;
+  final String? analysisId;
+  final List<ResultSummarySpan> _defaultSummarySpans;
 
   ResultViewModel({
     required this.data,
     this.showSummary = false,
     this.filename,
-  });
+    this.analysisId,
+  }) : _defaultSummarySpans = data.summarySpans;
 
   void toggleSummary() {
     showSummary = !showSummary;
@@ -99,7 +116,18 @@ class ResultViewModel extends ChangeNotifier {
     if (!showSummary) {
       return;
     }
+    debugPrint('[result] summary close');
     showSummary = false;
+    if (data.summarySpans != _defaultSummarySpans) {
+      data = ResultData(
+        foundClauseCount: data.foundClauseCount,
+        riskyClauseCount: data.riskyClauseCount,
+        clauses: data.clauses,
+        summarySpans: _defaultSummarySpans,
+        rawText: data.rawText,
+        rawHighlights: data.rawHighlights,
+      );
+    }
     notifyListeners();
   }
 
@@ -107,7 +135,20 @@ class ResultViewModel extends ChangeNotifier {
     if (showSummary || data.summarySpans.isEmpty) {
       return;
     }
+    debugPrint('[result] summary open');
     showSummary = true;
+    notifyListeners();
+  }
+
+  void updateSummarySpans(List<ResultSummarySpan> spans) {
+    data = ResultData(
+      foundClauseCount: data.foundClauseCount,
+      riskyClauseCount: data.riskyClauseCount,
+      clauses: data.clauses,
+      summarySpans: spans,
+      rawText: data.rawText,
+      rawHighlights: data.rawHighlights,
+    );
     notifyListeners();
   }
 
@@ -120,7 +161,12 @@ class ResultViewModel extends ChangeNotifier {
     final riskySnippets = _extractRiskSnippets(data);
     final clauses = _parseClauses(data, riskySnippets: riskySnippets);
     final riskyClauses = data['risky_clauses'] as List?;
+    final analysisId = _stringOrIntFrom(
+      data,
+      ['analysis_id', 'analysisId', 'id'],
+    );
     final riskyCount =
+        _intFrom(data, ['risky_count', 'risk_count', 'riskyCount']) ??
         riskyClauses?.length ??
         clauses
             .where(
@@ -132,11 +178,45 @@ class ResultViewModel extends ChangeNotifier {
     final foundCount =
         (data['total_clauses'] as int?) ??
         (data['clauses'] as List?)?.length ??
-        clauses.length;
+        (clauses.isNotEmpty ? clauses.length : riskyCount);
     final summaryText = _cleanText(
-      (data['llm_summary'] as String?)?.trim() ?? fallbackSummary?.trim(),
+      (data['summary'] as String?)?.trim() ??
+          (data['llm_summary'] as String?)?.trim() ??
+          fallbackSummary?.trim(),
     );
     final summarySpans = _buildSummarySpans(summaryText);
+    final rawText = _rawStringFrom(data, ['raw_text', 'rawText', 'ocr_text']);
+    final rawHighlights = rawText == null
+        ? const <String>[]
+        : _collectHighlights(rawText, null, riskySnippets);
+
+    final highlightCount = clauses
+        .map((clause) => clause.highlights.length)
+        .fold<int>(0, (sum, count) => sum + count);
+    debugPrint(
+      '[result] analysisId=${analysisId ?? 'null'} '
+      'clauses=${clauses.length} highlights=$highlightCount '
+      'riskySnippets=${riskySnippets.length} '
+      'riskyCount=$riskyCount foundCount=$foundCount '
+      'summary=${summaryText == null ? 'null' : 'len=${summaryText.length}'}',
+    );
+    if (rawText != null) {
+      final preview = rawText.length > 200
+          ? rawText.substring(0, 200)
+          : rawText;
+      debugPrint('[result] raw_text len=${rawText.length} preview=$preview');
+    } else {
+      debugPrint('[result] raw_text=null');
+    }
+    if (clauses.isNotEmpty) {
+      final sample = clauses.take(3).map((clause) {
+        final hl = clause.highlights.isNotEmpty
+            ? 'hl=${clause.highlights.length}'
+            : (clause.highlight == null ? 'hl=0' : 'hl=1');
+        return '${clause.title}(risk=${clause.risk}, $hl)';
+      }).join(' | ');
+      debugPrint('[result] sample=$sample');
+    }
 
     final resolvedClauses = clauses.isNotEmpty
         ? clauses
@@ -147,11 +227,14 @@ class ResultViewModel extends ChangeNotifier {
 
     return ResultViewModel(
       filename: filename,
+      analysisId: analysisId,
       data: ResultData(
         foundClauseCount: resolvedFoundCount,
         riskyClauseCount: riskyCount,
         clauses: resolvedClauses,
         summarySpans: summarySpans,
+        rawText: rawText,
+        rawHighlights: rawHighlights,
       ),
       showSummary: false,
     );
@@ -203,6 +286,14 @@ class ResultViewModel extends ChangeNotifier {
       }
       final title = _cleanText(_stringFrom(item, ['title', 'name']));
       final body = _cleanText(_stringFrom(item, ['body', 'content', 'text']));
+      final clauseId = _intFrom(item, [
+        'id',
+        'clause_id',
+        'clauseId',
+        'article_id',
+        'articleId',
+      ]);
+      final lookupKey = _rawStringFrom(item, ['article_num', 'title', 'name']);
       if (title == null || body == null) {
         continue;
       }
@@ -212,6 +303,8 @@ class ResultViewModel extends ChangeNotifier {
       final highlights = _collectHighlights(body, highlight, riskySnippets);
       clauses.add(
         ContractClause(
+          id: clauseId,
+          lookupKey: lookupKey,
           title: title,
           body: body,
           highlight: highlight,
@@ -268,6 +361,49 @@ class ResultViewModel extends ChangeNotifier {
       final value = map[key];
       if (value is String && value.trim().isNotEmpty) {
         return value.trim();
+      }
+    }
+    return null;
+  }
+
+  // ?? ??? ?? ?? ???? ????.
+  static String? _rawStringFrom(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  static int? _intFrom(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value is int) {
+        return value;
+      }
+      if (value is String) {
+        final parsed = int.tryParse(value);
+        if (parsed != null) {
+          return parsed;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String? _stringOrIntFrom(
+    Map<String, dynamic> map,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+      if (value is int) {
+        return value.toString();
       }
     }
     return null;
@@ -406,11 +542,38 @@ class ResultViewModel extends ChangeNotifier {
 
   // 요약 텍스트를 스팬 목록으로 변환한다.
   static List<ResultSummarySpan> _buildSummarySpans(String? summaryText) {
-    if (summaryText != null && summaryText.isNotEmpty) {
-      return [ResultSummarySpan(summaryText)];
+    final cleaned = _cleanSummaryText(summaryText);
+    if (cleaned != null && cleaned.isNotEmpty) {
+      return [ResultSummarySpan(cleaned)];
     }
 
     return const [];
+  }
+
+  static String? _cleanSummaryText(String? value) {
+    if (value == null) {
+      return null;
+    }
+    final lines = value.split('\n');
+    final cleanedLines = <String>[];
+    for (final line in lines) {
+      var trimmed = line.trim();
+      if (trimmed.isEmpty) {
+        continue;
+      }
+      // Remove markdown heading/bullets.
+      trimmed = trimmed.replaceAll(RegExp(r'^#{1,6}\s*'), '');
+      trimmed = trimmed.replaceAll(RegExp(r'^[-*•]\s+'), '');
+      // Remove markdown emphasis markers.
+      trimmed = trimmed.replaceAll(RegExp(r'[*_`]+'), '');
+      if (trimmed.isNotEmpty) {
+        cleanedLines.add(trimmed);
+      }
+    }
+    if (cleanedLines.isEmpty) {
+      return null;
+    }
+    return cleanedLines.join(' ');
   }
 }
 
@@ -426,6 +589,8 @@ class ResultScreen extends StatefulWidget {
 
 // 결과 화면의 상태 및 렌더링 로직.
 class _ResultScreenState extends State<ResultScreen> {
+  ContractClause? _lastTappedClause;
+  final Map<String, Map<String, dynamic>> _detailCache = {};
   @override
   void dispose() {
     widget.viewModel.dispose();
@@ -441,6 +606,7 @@ class _ResultScreenState extends State<ResultScreen> {
         final background = isDark
             ? ResultPalette.backgroundDark
             : ResultPalette.backgroundLight;
+        final hasSummary = widget.viewModel.data.summarySpans.isNotEmpty;
         return Scaffold(
           backgroundColor: background,
           body: SafeArea(
@@ -477,12 +643,26 @@ class _ResultScreenState extends State<ResultScreen> {
                                     riskyCount:
                                         widget.viewModel.data.riskyClauseCount,
                                   ),
-                                  ResultClauseList(
-                                    isDark: isDark,
-                                    clauses: widget.viewModel.data.clauses,
-                                    onHighlightTap:
-                                        widget.viewModel.openSummary,
-                                  ),
+                                  if (widget.viewModel.data.rawText != null &&
+                                      widget.viewModel.data.rawText!.isNotEmpty)
+                                    _OcrRawTextCard(
+                                      isDark: isDark,
+                                      text: widget.viewModel.data.rawText!,
+                                      highlights:
+                                          widget.viewModel.data.rawHighlights,
+                                      onHighlightTap: (highlight) =>
+                                          _handleOcrHighlightTap(
+                                            context,
+                                            highlight,
+                                          ),
+                                    )
+                                  else
+                                    ResultClauseList(
+                                      isDark: isDark,
+                                      clauses: widget.viewModel.data.clauses,
+                                      onHighlightTap: (clause) =>
+                                          _handleHighlightTap(context, clause),
+                                    ),
                                   const SizedBox(height: 80),
                                 ],
                               ),
@@ -497,13 +677,13 @@ class _ResultScreenState extends State<ResultScreen> {
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 250),
                           child:
-                              widget.viewModel.showSummary &&
-                                  widget.viewModel.data.summarySpans.isNotEmpty
+                              widget.viewModel.showSummary && hasSummary
                               ? ResultSummaryCard(
                                   isDark: isDark,
                                   spans: widget.viewModel.data.summarySpans,
                                   onClose: widget.viewModel.closeSummary,
-                                  onAction: () {},
+                                  onAction: () =>
+                                      _openSelectedClauseDetail(context),
                                 )
                               : const SizedBox.shrink(),
                         ),
@@ -518,9 +698,137 @@ class _ResultScreenState extends State<ResultScreen> {
       },
     );
   }
+
+
+  void _handleHighlightTap(BuildContext context, ContractClause clause) {
+    final analysisId = widget.viewModel.analysisId;
+    _lastTappedClause = clause;
+    debugPrint(
+      '[result] highlight tap analysisId=${analysisId ?? 'null'} '
+      'clauseId=${clause.id?.toString() ?? 'null'} '
+      'lookup=${clause.lookupKey ?? 'null'} '
+      'title=${clause.title}',
+    );
+    _loadClauseSummary(context, analysisId, clause);
+  }
+
+  void _handleOcrHighlightTap(BuildContext context, String highlight) {
+    final clauses = widget.viewModel.data.clauses;
+    ContractClause? matched;
+    for (final clause in clauses) {
+      if (clause.highlights.any((item) => item.contains(highlight))) {
+        matched = clause;
+        break;
+      }
+    }
+    if (matched == null) {
+      for (final clause in clauses) {
+        if (clause.highlights.any((item) => highlight.contains(item))) {
+          matched = clause;
+          break;
+        }
+      }
+    }
+    if (matched == null) {
+      final normalizedHighlight = _normalizeForMatch(highlight);
+      for (final clause in clauses) {
+        final normalizedBody = _normalizeForMatch(clause.body);
+        if (normalizedBody.contains(normalizedHighlight)) {
+          matched = clause;
+          break;
+        }
+      }
+    }
+    if (matched == null) {
+      debugPrint('[result] ocr highlight no match: "$highlight"');
+      widget.viewModel.updateSummarySpans(
+        const [ResultSummarySpan('해당 하이라이트 요약을 찾지 못했습니다.')],
+      );
+      widget.viewModel.openSummary();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('해당 하이라이트 조항을 찾지 못했습니다.')),
+      );
+      return;
+    }
+    debugPrint('[result] ocr highlight match: "${matched.title}"');
+    _handleHighlightTap(context, matched);
+  }
+
+  String _normalizeForMatch(String value) {
+    return value
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll(RegExp(r'[.,!?:;()"\\[\\]{}<>\\-]'), '')
+        .replaceAll('·', '')
+        .replaceAll('ㆍ', '')
+        .toLowerCase();
+  }
+
+  void _openSelectedClauseDetail(BuildContext context) {
+    final analysisId = widget.viewModel.analysisId;
+    final clauses = widget.viewModel.data.clauses;
+    if (analysisId == null || clauses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('상세 데이터를 찾을 수 없습니다.')),
+      );
+      return;
+    }
+    final clause = _lastTappedClause ??
+        clauses.firstWhere(
+          (item) => item.id != null,
+          orElse: () => clauses.first,
+        );
+    debugPrint(
+      '[result] detail open clause="${clause.title}" id=${clause.id?.toString() ?? 'null'}',
+    );
+    _openDetail(context, analysisId, clause);
+  }
+
+  Future<void> _loadClauseSummary(
+    BuildContext context,
+    String? analysisId,
+    ContractClause clause,
+  ) async {
+    widget.viewModel.updateSummarySpans(
+      const [ResultSummarySpan('요약을 불러오는 중입니다.')],
+    );
+    widget.viewModel.openSummary();
+    if (analysisId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('상세 데이터를 찾을 수 없습니다.')),
+      );
+      return;
+    }
+
+    try {
+      final cacheKey = _detailCacheKey(analysisId, clause);
+      final decoded = _detailCache[cacheKey] ??
+          await _fetchClauseDetail(analysisId, clause);
+      _detailCache[cacheKey] = decoded;
+      if (!context.mounted) {
+        return;
+      }
+      final spans = _buildClauseSummarySpans(decoded);
+      widget.viewModel.updateSummarySpans(spans);
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      widget.viewModel.updateSummarySpans(
+        const [ResultSummarySpan('해당 조항 요약을 불러올 수 없습니다.')],
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('상세 로드 실패: $error')),
+      );
+    }
+  }
 }
 
 // 상단 앱바(뒤로가기/타이틀/더보기).
+
+String _detailCacheKey(String analysisId, ContractClause clause) {
+  return '$analysisId::${clause.id?.toString() ?? clause.lookupKey ?? clause.title}';
+}
+
 class ResultTopAppBar extends StatelessWidget {
   final bool isDark;
   final VoidCallback onBack;
@@ -542,7 +850,7 @@ class ResultTopAppBar extends StatelessWidget {
             (isDark
                     ? ResultPalette.backgroundDark
                     : ResultPalette.backgroundLight)
-                .withOpacity(0.9),
+                .withValues(alpha: 0.9),
         border: Border(
           bottom: BorderSide(
             color: isDark ? Colors.white12 : ResultPalette.cardBorder,
@@ -600,7 +908,7 @@ class ResultStatsRow extends StatelessWidget {
           Expanded(
             child: _StatCard(
               title: '발견된 조항',
-              value: '${foundCount}건',
+              value: '$foundCount건',
               titleColor:
                   isDark ? Colors.white70 : ResultPalette.textMuted,
               valueColor: isDark ? Colors.white : ResultPalette.textHeader,
@@ -613,7 +921,7 @@ class ResultStatsRow extends StatelessWidget {
           Expanded(
             child: _StatCard(
               title: '독소 가능성',
-              value: '${riskyCount}건',
+              value: '$riskyCount건',
               titleColor:
                   isDark ? Colors.white70 : ResultPalette.textMuted,
               valueColor:
@@ -626,6 +934,109 @@ class ResultStatsRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _OcrRawTextCard extends StatelessWidget {
+  final bool isDark;
+  final String text;
+  final List<String> highlights;
+  final ValueChanged<String> onHighlightTap;
+
+  const _OcrRawTextCard({
+    required this.isDark,
+    required this.text,
+    required this.highlights,
+    required this.onHighlightTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = isDark ? Colors.white70 : ResultPalette.textBody;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RichText(
+            text: TextSpan(
+              style: TextStyle(
+                color: textColor,
+                fontSize: 15,
+                height: 1.6,
+              ),
+              children: _buildHighlightSpans(
+                text,
+                highlights,
+                ResultPalette.riskBlue,
+                onTap: onHighlightTap,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<TextSpan> _buildHighlightSpans(
+    String body,
+    List<String> highlights,
+    Color color, {
+    ValueChanged<String>? onTap,
+  }
+  ) {
+    if (highlights.isEmpty) {
+      return [TextSpan(text: body)];
+    }
+
+    final ranges = <_HighlightRange>[];
+    for (final highlight in highlights) {
+      final range = ResultViewModel._findHighlightRange(body, highlight);
+      if (range != null) {
+        ranges.add(range);
+      }
+    }
+    if (ranges.isEmpty) {
+      return [TextSpan(text: body)];
+    }
+
+    ranges.sort((a, b) => a.start.compareTo(b.start));
+    final merged = <_HighlightRange>[];
+    for (final range in ranges) {
+      if (merged.isEmpty || range.start > merged.last.end) {
+        merged.add(range);
+      } else if (range.end > merged.last.end) {
+        merged[merged.length - 1] = _HighlightRange(
+          merged.last.start,
+          range.end,
+        );
+      }
+    }
+
+    final spans = <TextSpan>[];
+    var cursor = 0;
+    for (final range in merged) {
+      if (range.start > cursor) {
+        spans.add(TextSpan(text: body.substring(cursor, range.start)));
+      }
+      final highlightText = body.substring(range.start, range.end);
+      spans.add(
+        TextSpan(
+          text: highlightText,
+          style: TextStyle(
+            backgroundColor: color.withValues(alpha: 0.2),
+          ),
+          recognizer: onTap == null
+              ? null
+              : (TapGestureRecognizer()..onTap = () => onTap(highlightText)),
+        ),
+      );
+      cursor = range.end;
+    }
+    if (cursor < body.length) {
+      spans.add(TextSpan(text: body.substring(cursor)));
+    }
+    return spans;
   }
 }
 
@@ -686,7 +1097,7 @@ class _StatCard extends StatelessWidget {
 class ResultClauseList extends StatelessWidget {
   final bool isDark;
   final List<ContractClause> clauses;
-  final VoidCallback onHighlightTap;
+  final ValueChanged<ContractClause> onHighlightTap;
 
   const ResultClauseList({
     super.key,
@@ -717,7 +1128,7 @@ class ResultClauseList extends StatelessWidget {
 class _ClauseSection extends StatefulWidget {
   final bool isDark;
   final ContractClause clause;
-  final VoidCallback onHighlightTap;
+  final ValueChanged<ContractClause> onHighlightTap;
 
   const _ClauseSection({
     required this.isDark,
@@ -746,35 +1157,48 @@ class _ClauseSectionState extends State<_ClauseSection> {
     final baseTextColor = widget.isDark
         ? Colors.grey.shade300
         : ResultPalette.textBody;
+    final highlights = widget.clause.highlights.isNotEmpty
+        ? widget.clause.highlights
+        : (widget.clause.highlight != null
+              ? [widget.clause.highlight!]
+              : const <String>[]);
+    final highlightColor = _riskColor(
+      widget.clause.risk,
+      hasHighlight: highlights.isNotEmpty,
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.clause.title,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: widget.isDark ? Colors.white : ResultPalette.textHeader,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.clause.title,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: widget.isDark
+                        ? Colors.white
+                        : ResultPalette.textHeader,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           RichText(
             text: TextSpan(
               style: TextStyle(
-                fontSize: 16,
+                fontSize: 17,
                 height: 1.6,
                 color: baseTextColor,
               ),
               children: _buildHighlightSpans(
                 widget.clause.body,
-                widget.clause.highlights.isNotEmpty
-                    ? widget.clause.highlights
-                    : (widget.clause.highlight != null
-                          ? [widget.clause.highlight!]
-                          : const []),
-                _riskColor(widget.clause.risk),
+                highlights,
+                highlightColor,
               ),
             ),
           ),
@@ -823,15 +1247,15 @@ class _ClauseSectionState extends State<_ClauseSection> {
         spans.add(TextSpan(text: body.substring(cursor, range.start)));
       }
       final recognizer = TapGestureRecognizer()
-        ..onTap = widget.onHighlightTap;
+        ..onTap = () => widget.onHighlightTap(widget.clause);
       _recognizers.add(recognizer);
       spans.add(
         TextSpan(
           text: body.substring(range.start, range.end),
           style: TextStyle(
-            backgroundColor: color.withOpacity(0.2),
+            backgroundColor: color.withValues(alpha: 0.2),
             decoration: TextDecoration.underline,
-            decorationColor: color.withOpacity(0.5),
+            decorationColor: color.withValues(alpha: 0.5),
             decorationThickness: 2,
           ),
           recognizer: recognizer,
@@ -845,19 +1269,11 @@ class _ClauseSectionState extends State<_ClauseSection> {
     return spans;
   }
 
-  Color? _riskColor(RiskLevel? risk) {
-    switch (risk) {
-      case RiskLevel.high:
-        return ResultPalette.riskRed;
-      case RiskLevel.medium:
-        return ResultPalette.riskYellow;
-      case RiskLevel.low:
-        return ResultPalette.riskBlue;
-      case RiskLevel.info:
-        return ResultPalette.primary;
-      case null:
-        return null;
-    }
+  Color? _riskColor(
+    RiskLevel? risk, {
+    required bool hasHighlight,
+  }) {
+    return hasHighlight ? ResultPalette.riskBlue : null;
   }
 }
 
@@ -888,7 +1304,7 @@ class ResultSummaryCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
+            color: Colors.black.withValues(alpha: 0.12),
             blurRadius: 24,
             offset: const Offset(0, -8),
           ),
@@ -902,7 +1318,7 @@ class ResultSummaryCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: ResultPalette.primary.withOpacity(0.2),
+                  color: ResultPalette.primary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -954,6 +1370,8 @@ class ResultSummaryCard extends StatelessWidget {
                   ),
               ],
             ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 12),
           Align(
@@ -974,7 +1392,7 @@ class ResultSummaryCard extends StatelessWidget {
                   vertical: 10,
                 ),
                 elevation: 6,
-                shadowColor: ResultPalette.primary.withOpacity(0.2),
+                shadowColor: ResultPalette.primary.withValues(alpha: 0.2),
               ),
             ),
           ),
@@ -984,4 +1402,203 @@ class ResultSummaryCard extends StatelessWidget {
   }
 }
 
+Future<void> _openDetail(
+  BuildContext context,
+  String? analysisId,
+  ContractClause clause,
+) async {
+  if (analysisId == null) {
+    debugPrint(
+      '[result] detail skip analysisId=null '
+      'clauseId=${clause.id?.toString() ?? 'null'}',
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('?? ???? ?? ? ????.')),
+    );
+    return;
+  }
 
+  var dialogShown = false;
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    useRootNavigator: true,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+  );
+  dialogShown = true;
+
+  try {
+    final cacheKey = _detailCacheKey(analysisId, clause);
+    final decoded = _detailCache[cacheKey] ??
+        await _fetchClauseDetail(analysisId, clause);
+    _detailCache[cacheKey] = decoded;
+
+    final clauseText = _stringFromMap(decoded['clause_text']) ?? clause.body;
+    final tenantArgument =
+        _stringFromMap(decoded['tenant_argument']) ?? '';
+    final landlordArgument =
+        _stringFromMap(decoded['landlord_argument']) ?? '';
+    final compromiseQuote =
+        _stringFromMap(decoded['compromise_quote']) ?? '';
+    final tenantTags = _stringListFrom(decoded['tenant_tags']);
+    final landlordTags = _stringListFrom(decoded['landlord_tags']);
+    final negotiationPoints = _stringListFrom(decoded['negotiation_points']);
+
+    if (!context.mounted) {
+      debugPrint('[result] detail push skipped: context not mounted');
+      return;
+    }
+    if (dialogShown) {
+      Navigator.of(context, rootNavigator: true).pop();
+      dialogShown = false;
+    }
+    debugPrint('[result] detail push start');
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DetailScreen(
+          clauseText: clauseText,
+          tenantArgument: tenantArgument,
+          landlordArgument: landlordArgument,
+          tenantTags: tenantTags,
+          landlordTags: landlordTags,
+          negotiationPoints: negotiationPoints,
+          compromiseQuote: compromiseQuote,
+        ),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      debugPrint('[result] detail error after dispose: $error');
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('상세 로드 실패: $error')),
+    );
+  } finally {
+    if (dialogShown && context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+}
+
+Future<Map<String, dynamic>> _fetchClauseDetail(
+  String analysisId,
+  ContractClause clause,
+) async {
+  final clauseId = clause.id?.toString() ?? clause.lookupKey ?? clause.title;
+  final uri = Uri.parse(
+    'http://3.38.43.65:8000/analysis/$analysisId/clause/${Uri.encodeComponent(clauseId)}',
+  );
+  debugPrint('[result] detail request url=$uri');
+  final response =
+      await http.get(uri).timeout(const Duration(seconds: 10));
+  final body = utf8.decode(response.bodyBytes);
+  debugPrint(
+    '[result] detail response status=${response.statusCode} '
+    'length=${body.length}',
+  );
+  if (response.statusCode != 200) {
+    throw Exception('상세 API 오류: ${response.statusCode} ${body.trim()}');
+  }
+  final decoded = jsonDecode(body);
+  if (decoded is! Map<String, dynamic>) {
+    throw Exception('상세 API 응답 형식이 올바르지 않습니다.');
+  }
+  return decoded;
+}
+
+List<ResultSummarySpan> _buildClauseSummarySpans(
+  Map<String, dynamic> decoded,
+) {
+  final tenantArgument = _sanitizeArgument(decoded['tenant_argument']);
+  final landlordArgument = _sanitizeArgument(decoded['landlord_argument']);
+  final compromiseQuote = _sanitizeArgument(decoded['compromise_quote']);
+  final negotiationPoints = _stringListFrom(decoded['negotiation_points']);
+
+  final parts = <String>[];
+  if (tenantArgument != null) {
+    parts.add(tenantArgument);
+  }
+  if (landlordArgument != null) {
+    parts.add(landlordArgument);
+  }
+  if (negotiationPoints.isNotEmpty) {
+    parts.add(negotiationPoints.join(' · '));
+  }
+  if (compromiseQuote != null) {
+    parts.add(compromiseQuote);
+  }
+
+  if (parts.isEmpty) {
+    return const [ResultSummarySpan('해당 조항 요약을 불러올 수 없습니다.')];
+  }
+
+  final cleaned = ResultViewModel._cleanSummaryText(parts.join(' '));
+  if (cleaned == null || cleaned.isEmpty) {
+    return const [ResultSummarySpan('해당 조항 요약을 불러올 수 없습니다.')];
+  }
+  return [ResultSummarySpan(cleaned)];
+}
+
+String? _sanitizeArgument(dynamic value) {
+  final raw = _stringFromMap(value);
+  if (raw == null) {
+    return null;
+  }
+  final trimmed = raw.trim();
+  final jsonCandidate = _extractJsonObject(trimmed);
+  if (jsonCandidate != null) {
+    try {
+      final decoded = jsonDecode(jsonCandidate);
+      if (decoded is Map<String, dynamic>) {
+        final rationale = _stringFromMap(decoded['rationale']);
+        if (rationale != null && rationale.isNotEmpty) {
+          return rationale;
+        }
+        final text = _stringFromMap(decoded['text']);
+        if (text != null && text.isNotEmpty) {
+          return text;
+        }
+      }
+    } catch (_) {
+      // Fall through to raw text.
+    }
+  }
+  return raw;
+}
+
+String? _extractJsonObject(String value) {
+  final start = value.indexOf('{');
+  final end = value.lastIndexOf('}');
+  if (start == -1 || end == -1 || end <= start) {
+    return null;
+  }
+  return value.substring(start, end + 1);
+}
+
+String? _stringFromMap(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is String) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+  final converted = value.toString().trim();
+  return converted.isEmpty ? null : converted;
+}
+
+List<String> _stringListFrom(dynamic value) {
+  if (value is List) {
+    return value
+        .whereType<String>()
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+  final single = _stringFromMap(value);
+  if (single == null) {
+    return const [];
+  }
+  return [single];
+}

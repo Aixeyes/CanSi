@@ -1,6 +1,10 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+
 import 'user_session.dart';
 
 /// 로그인 화면에서 공통으로 사용하는 색상 팔레트.
@@ -37,6 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _password = TextEditingController();
   static const String _googleLoginUrl = 'https://accounts.google.com/';
   static const String _appleLoginUrl = 'https://appleid.apple.com/';
+  static const String _loginEndpoint = 'http://3.38.43.65:8000/login';
 
   @override
   void dispose() {
@@ -45,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _handleLogin() {
+  Future<void> _handleLogin() async {
     final trimmedEmail = _email.text.trim();
     final trimmedPassword = _password.text.trim();
 
@@ -67,13 +72,81 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Cache the email locally for downstream profile lookup.
-    UserSession.email = trimmedEmail;
-    // TODO: Replace with real auth API call.
-    widget.onLogin();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final uri = Uri.parse(_loginEndpoint);
+      debugPrint('[login] POST $uri email=$trimmedEmail');
+      final response = await http.post(
+        uri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': trimmedEmail, 'password': trimmedPassword}),
+      );
+      final body = utf8.decode(response.bodyBytes);
+      debugPrint('[login] status=${response.statusCode} body=$body');
+
+      if (response.statusCode != 200) {
+        final detail = _extractErrorDetail(body);
+        final message = detail ?? '???? ??????. (${response.statusCode})';
+        throw Exception(message);
+      }
+
+      final payload = _decodeLoginPayload(body);
+      final userId = payload?['id'];
+      if (userId is! int) {
+        throw Exception('??? ??? ???? ????.');
+      }
+
+      // Cache the email and user id locally for downstream profile lookup.
+      UserSession.email = payload?['email']?.toString() ?? trimmedEmail;
+      UserSession.userId = userId;
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context, rootNavigator: true).pop();
+      widget.onLogin();
+    } catch (error) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('로그인 실패: $error')));
+      }
+    }
   }
 
-  /// 소셜 로그인 URL을 외부 브라우저로 연다.
+  String? _extractErrorDetail(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        final detail = decoded['detail'];
+        if (detail is String && detail.trim().isNotEmpty) {
+          return detail.trim();
+        }
+      }
+    } catch (_) {
+      // Ignore JSON parse errors and fallback to a generic message.
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _decodeLoginPayload(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors and treat as invalid payload.
+    }
+    return null;
+  }
+
+
   Future<void> _openSocialLogin(String url) async {
     // Launch external login flow; app-side OAuth is out of scope here.
     final uri = Uri.parse(url);

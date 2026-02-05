@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'main.dart';
+
+import '../result.dart';
+import '../shared/dashboard_palette.dart';
+import '../shared/history_repository.dart';
 
 /// 분석 기록 화면.
 class HistoryScreen extends StatelessWidget {
@@ -205,7 +208,7 @@ class _HistoryList extends StatelessWidget {
           itemBuilder: (context, index) {
             return _HistoryEntryCard(entry: entries[index]);
           },
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemCount: entries.length,
         );
       },
@@ -243,86 +246,136 @@ class _HistoryEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: DashboardPalette.borderLight),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: entry.iconBg,
-              borderRadius: BorderRadius.circular(10),
+    return InkWell(
+      onTap: () => _openHistoryDetail(context, entry),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: DashboardPalette.borderLight),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-            child: Icon(entry.icon, color: entry.iconColor, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        entry.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: DashboardPalette.textDark,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w800,
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: entry.iconBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(entry.icon, color: entry.iconColor, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          entry.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: DashboardPalette.textDark,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 12),
+                      Text(
+                        entry.time,
+                        style: const TextStyle(
+                          color: DashboardPalette.textMuted,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      entry.time,
-                      style: const TextStyle(
-                        color: DashboardPalette.textMuted,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
+                    decoration: BoxDecoration(
+                      color: entry.badgeColor,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      entry.statusLabel,
+                      style: TextStyle(
+                        color: entry.statusColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
                   ),
-                  decoration: BoxDecoration(
-                    color: entry.badgeColor,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    entry.statusLabel,
-                    style: TextStyle(
-                      color: entry.statusColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+Future<void> _openHistoryDetail(
+  BuildContext context,
+  ActivityEntry entry,
+) async {
+  final analysisId = entry.analysisId;
+  if (analysisId == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('상세 데이터를 찾을 수 없습니다.')),
+    );
+    return;
+  }
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+  );
+
+  try {
+    final data =
+        await HistoryRepository.instance.fetchAnalysisDetail(analysisId);
+    if (!context.mounted) {
+      return;
+    }
+    Navigator.of(context, rootNavigator: true).pop();
+    final viewModel = ResultViewModel.fromApi(
+      data,
+      filename: data['original_name']?.toString() ??
+          data['filename']?.toString() ??
+          entry.title,
+      fallbackSummary: data['summary']?.toString(),
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ResultScreen(viewModel: viewModel)),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    Navigator.of(context, rootNavigator: true).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('상세 로드 실패: $error')),
     );
   }
 }
