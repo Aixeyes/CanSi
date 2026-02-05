@@ -9,3 +9,11 @@ __pycache__/
 .env
 *.log
 
+# Images
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.bmp
+*.tiff

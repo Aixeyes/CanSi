@@ -2,8 +2,11 @@
 2단계: 텍스트 정제 및 조항 분리
 """
 
+import json
 import re
 from typing import List
+
+from openai_client import chat_completion
 from models import Clause
 
 
@@ -40,25 +43,22 @@ class TextProcessor:
         """
         clauses = []
         
-        # "제n조" 패턴으로 분리
-        clause_pattern = r'제\s*(\d+)\s*조\s*(.+?)(?=제\s*\d+\s*조|$)'
+        # "제n조" 패턴으로 분리 (괄호 제목/공백 변형 허용)
+        clause_pattern = r'제\s*(\d+)\s*조\s*(?:\((.*?)\))?\s*(.+?)(?=제\s*\d+\s*조|$)'
         matches = re.finditer(clause_pattern, text, re.DOTALL)
         
         for match in matches:
             clause_num = match.group(1)
-            clause_text = match.group(2).strip()
-            
-            # 첫 줄을 제목으로, 나머지를 내용으로
-            lines = clause_text.split('\n', 1)
-            title_line = lines[0].strip()
-            title = title_line
-            content_first = ""
-            paren_match = re.search(r'\(([^)]*)\)\s*(.*)', title_line)
-            if paren_match:
-                title = paren_match.group(1).strip()
-                content_first = paren_match.group(2).strip()
-            content_rest = lines[1].strip() if len(lines) > 1 else ""
-            content = "\n".join(part for part in [content_first, content_rest] if part).strip()
+            title_raw = (match.group(2) or "").strip()
+            body_raw = match.group(3).strip()
+
+            # 괄호 제목이 없으면 첫 줄을 제목 후보로 사용
+            title = title_raw
+            content = body_raw
+            if not title:
+                lines = body_raw.split('\n', 1)
+                title = lines[0].strip()
+                content = lines[1].strip() if len(lines) > 1 else ""
             
             clause = Clause(
                 id=f"clause_{clause_num}",
@@ -69,3 +69,43 @@ class TextProcessor:
             clauses.append(clause)
         
         return clauses
+
+    def split_clauses_with_fallback(self, text: str) -> List[Clause]:
+        """
+        규칙 기반 분리가 실패하거나 품질이 낮을 때 LLM 보정 분리를 시도한다.
+        """
+        clauses = self.split_clauses(text)
+        if clauses and not (len(clauses) == 1 and len(text) > 1000):
+            return clauses
+        return self._split_clauses_with_llm(text, fallback=clauses)
+
+    def _split_clauses_with_llm(
+        self,
+        text: str,
+        fallback: List[Clause],
+    ) -> List[Clause]:
+        prompt = (
+            "Split the following Korean contract into clauses. "
+            "Return JSON only as a list of objects with keys: article_num, title, content. "
+            "article_num should be like '제1조' if present, otherwise use '조항N'. "
+            "Do not omit any content. Respond in Korean.\n\n"
+            f"{text}"
+        )
+        try:
+            content = chat_completion(prompt=prompt, model="gpt-4o")
+            payload = json.loads(content)
+            clauses: List[Clause] = []
+            for idx, item in enumerate(payload, start=1):
+                article_num = str(item.get("article_num") or f"조항{idx}").strip()
+                title = str(item.get("title") or "무제").strip()
+                body = str(item.get("content") or "").strip()
+                clause = Clause(
+                    id=f"clause_{idx}",
+                    article_num=article_num,
+                    title=title,
+                    content=body,
+                )
+                clauses.append(clause)
+            return clauses or fallback
+        except Exception:
+            return fallback

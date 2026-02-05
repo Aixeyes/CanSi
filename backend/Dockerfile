@@ -1,14 +1,15 @@
-FROM continuumio/miniconda3
+FROM continuumio/miniconda3:latest
 
 WORKDIR /app
 
-COPY environment.yml /app/environment.yml
-
-RUN conda env create -f /app/environment.yml
-
-SHELL ["conda", "run", "-n", "appenv", "/bin/bash", "-c"]
+# Create conda env first to leverage Docker layer caching
+COPY environment.yml /tmp/environment.yml
+RUN conda env create -f /tmp/environment.yml && conda clean -afy
 
 COPY . /app
 
-CMD ["conda", "run", "-n", "appenv", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV PATH="/opt/conda/envs/appenv/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
+EXPOSE 8000

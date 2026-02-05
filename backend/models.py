@@ -25,6 +25,7 @@ class Clause:
     risk_level: Optional[RiskType] = None
     risk_reason: Optional[str] = None
     related_precedents: List = field(default_factory=list)
+    related_laws: List = field(default_factory=list)
 
 
 @dataclass
@@ -32,23 +33,24 @@ class Precedent:
     """판례 정보"""
     case_id: str
     court: str                          # 법원
-    date: str                           # 선고일자
+    date: str                           # 판결일
     case_name: str                      # 사건명
-    case_number: str = ""              # 사건번호
-    case_type_name: str = ""            # 사건종류명
-    case_type_code: Optional[int] = None
-    court_type_code: Optional[int] = None
-    decision_type: str = ""            # 판결유형
-    decision_result: str = ""          # 선고
-    source_name: str = ""              # 데이터출처명
-    detail_link: str = ""              # 판례상세링크
-    issues: str = ""                   # 판시사항
-    summary: str = ""                  # 판결요지
-    key_paragraph: str = ""            # 문제 문단
-    full_text: str = ""                # 판례내용
-    reference_statutes: str = ""       # 참조조문
-    reference_precedents: str = ""     # 참조판례
-    embedding: Optional[List[float]] = None
+    summary: str                        # 요약
+    key_paragraph: str                  # 문제 문단
+    similarity_score: Optional[float] = None
+
+
+@dataclass
+class Law:
+    """법령/행정규칙/자치법규 정보"""
+    doc_id: str
+    doc_type: str                       # law | admrul | ordin
+    title: str
+    summary: str = ""
+    content: str = ""
+    date: str = ""
+    org: str = ""
+    url: str = ""
     similarity_score: Optional[float] = None
 
 
@@ -60,4 +62,8 @@ class ContractAnalysisResult:
     clauses: List[Clause]
     risky_clauses: List[Clause]
     precedents: List[Precedent]
+    laws: List[Law]
+    raw_html: Optional[str] = None      # Document Parse HTML (table-preserving)
     llm_summary: Optional[str] = None
+    debate_transcript: Optional[List[dict]] = None
+    contract_type: Optional[str] = None

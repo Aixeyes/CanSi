@@ -43,3 +43,8 @@ class RiskMapper:
     def get_all_categories() -> List[str]:
         """전체 위험 카테고리 반환"""
         return list(RiskMapper.RISK_CATEGORIES.keys())
+
+    @staticmethod
+    def get_keywords_for_category(category: str) -> List[str]:
+        """카테고리별 키워드 반환"""
+        return RiskMapper.RISK_CATEGORIES.get(category, [])
