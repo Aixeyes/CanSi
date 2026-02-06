@@ -5,6 +5,7 @@
 import os
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 from dataclasses import asdict
 
@@ -95,7 +96,7 @@ class ContractAnalysisPipeline:
             ).split(",")
             if kw.strip()
         ]
-        for clause in risky_clauses:
+        def fetch_refs_for_clause(clause: Clause):
             category = self.risk_mapper.map_risk_category(clause, all_precedents)
             keywords = domain_keywords + [clause.title]
             if category and category != "기타":
@@ -114,7 +115,6 @@ class ContractAnalysisPipeline:
                     if p.case_id and p.case_id not in seen:
                         precedents.append(p)
                         seen.add(p.case_id)
-            all_precedents.extend(precedents)
             laws = self.law_fetcher.fetch_laws(query)
             if isinstance(laws, str):
                 laws = []
@@ -128,7 +128,27 @@ class ContractAnalysisPipeline:
                     if law.doc_id and key not in seen:
                         laws.append(law)
                         seen.add(key)
-            all_laws.extend(laws)
+            return precedents, laws
+
+        workers = int(os.getenv("REFERENCE_FETCH_WORKERS") or "4")
+        if workers <= 1 or len(risky_clauses) <= 1:
+            for clause in risky_clauses:
+                precedents, laws = fetch_refs_for_clause(clause)
+                all_precedents.extend(precedents)
+                all_laws.extend(laws)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                future_map = {
+                    executor.submit(fetch_refs_for_clause, clause): clause
+                    for clause in risky_clauses
+                }
+                for future in as_completed(future_map):
+                    try:
+                        precedents, laws = future.result()
+                    except Exception:
+                        continue
+                    all_precedents.extend(precedents)
+                    all_laws.extend(laws)
         all_laws = self.law_fetcher._dedupe_laws(all_laws)
         print(f"     precedents {len(all_precedents)}, laws {len(all_laws)} collected")
         print(f"     판례/법령 수집 완료 ({time.perf_counter() - step_start:.2f}s)")
