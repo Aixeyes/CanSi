@@ -226,9 +226,13 @@ class DebateAgents:
             title = clause.title or "제목 없음"
             content = (clause.content or "").strip()
             snippet = content[:300] + ("..." if len(content) > 300 else "")
-            lines.append(
-                f"- {clause.article_num} {title} (risk={risk_level}): {snippet}"
-            )
+            clause_block = f"- {clause.article_num} {title} (risk={risk_level}): {snippet}"
+            precedent_block = DebateAgents._format_precedents(clause.related_precedents)
+            law_block = DebateAgents._format_laws(clause.related_laws)
+            extras = "\n".join([b for b in [precedent_block, law_block] if b])
+            if extras:
+                clause_block = f"{clause_block}\n  {extras}"
+            lines.append(clause_block)
         return "\n".join(lines)
 
     @staticmethod
@@ -256,3 +260,46 @@ class DebateAgents:
 
     def detect_contract_type(self, raw_text: str) -> str:
         return self._detect_contract_type(raw_text)
+
+    @staticmethod
+    def _truncate(text: str, limit: int) -> str:
+        text = (text or "").strip()
+        if not text:
+            return ""
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "..."
+
+    @staticmethod
+    def _format_precedents(precedents: List) -> str:
+        if not precedents:
+            return ""
+        items = []
+        for p in precedents[:3]:
+            case = getattr(p, "case_name", "") or "사건명 없음"
+            court = getattr(p, "court", "") or ""
+            date = getattr(p, "date", "") or ""
+            summary = getattr(p, "summary", "") or getattr(p, "key_paragraph", "") or ""
+            summary = DebateAgents._truncate(summary, 160)
+            meta = " ".join([part for part in [court, date] if part])
+            items.append(f"* 판례: {case} ({meta}) - {summary}".strip())
+        if not items:
+            return ""
+        return "관련 판례:\n  " + "\n  ".join(items)
+
+    @staticmethod
+    def _format_laws(laws: List) -> str:
+        if not laws:
+            return ""
+        items = []
+        for l in laws[:3]:
+            title = getattr(l, "title", "") or "법령명 없음"
+            date = getattr(l, "date", "") or ""
+            org = getattr(l, "org", "") or ""
+            summary = getattr(l, "summary", "") or getattr(l, "content", "") or ""
+            summary = DebateAgents._truncate(summary, 160)
+            meta = " ".join([part for part in [org, date] if part])
+            items.append(f"* 법령: {title} ({meta}) - {summary}".strip())
+        if not items:
+            return ""
+        return "관련 법령:\n  " + "\n  ".join(items)
