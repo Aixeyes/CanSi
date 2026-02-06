@@ -47,6 +47,7 @@ pip install fastapi uvicorn  # API 사용 시
 - `LAW_TARGETS`: `law,ordin` (현행법령, 자치법규)
 - `LAW_MIN_RESULTS`: clause 당 최소 결과 수 (기본 3)
 - `LAW_DETAIL_LIMIT`: 상세 본문 호출 제한 (기본 10)
+- `REFERENCE_FETCH_WORKERS`: 판례/법령 수집 병렬 워커 수 (기본 4)
 - `LAW_DOMAIN_KEYWORDS`: 법령 결과 필터 키워드 (기본: 부동산,임대차,임대,임차,주택,전세,월세,보증금)
 - `LAW_TITLE_MUST_KEYWORDS`: 법령명에 반드시 포함될 키워드 (기본: 주택임대차보호법)
 - `LAW_BASE_QUERY`: 법령 기본 조회어 (기본: 주택임대차보호법)
